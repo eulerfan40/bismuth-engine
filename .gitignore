@@ -1,0 +1,22 @@
+# Build directories
+build/
+cmake-build-*/
+
+# FetchContent downloads
+_deps/
+
+# IDE files
+.idea/
+
+# Compiled files
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.o
+*.obj
+
+# Logs
+*.log

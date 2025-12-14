@@ -46,14 +46,19 @@ FetchContent_MakeAvailable(library)
 ## Project Structure
 
 ```
-Game-Engine/
-├── CMakeLists.txt      # Root (minimal, adds subdirs)
-└── engine/
-    ├── CMakeLists.txt  # Main config (FetchContent here)
-    └── src/
+vulkan-engine/
+├── engine/          # Core engine code
+│   └── src/        # Source files
+├── docs/            # Documentation
+└── CMakeLists.txt   # Build configuration
 ```
 
-Can add `editor/`, `examples/`, `tests/` later as separate modules.
+## Naming Conventions
+
+**Files:** PascalCase for classes (`Window.cpp`, `FirstApp.hpp`)
+**Executable:** lowercase (`engine`)
+**Project:** PascalCase (`VulkanEngine`)
+**Namespaces:** lowercase (`namespace engine`)
 
 ## Compiler Support
 

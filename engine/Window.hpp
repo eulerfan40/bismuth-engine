@@ -1,8 +1,0 @@
-//
-// Created by Admin on 12/12/2025.
-//
-
-#ifndef VULKANENGINE_WINDOW_HPP
-#define VULKANENGINE_WINDOW_HPP
-
-#endif //VULKANENGINE_WINDOW_HPP

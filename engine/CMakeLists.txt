@@ -49,7 +49,13 @@ target_include_directories(volk PUBLIC ${vulkan_headers_SOURCE_DIR}/include)
 FetchContent_MakeAvailable(glfw glm)
 
 # Engine executable
-add_executable(engine )
+add_executable(engine
+        src/main.cpp
+        src/FirstApp.hpp
+        src/FirstApp.cpp
+        src/Window.hpp
+        src/Window.cpp
+)
 
 # Link libraries
 target_link_libraries(engine PRIVATE

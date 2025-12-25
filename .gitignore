@@ -14,6 +14,7 @@ _deps/
 
 # Compiled files
 *.exe
+*.spv
 *.dll
 *.so
 *.dylib

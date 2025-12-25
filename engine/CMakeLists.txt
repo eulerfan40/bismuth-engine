@@ -48,14 +48,22 @@ target_include_directories(volk PUBLIC ${vulkan_headers_SOURCE_DIR}/include)
 # Download and make available the rest
 FetchContent_MakeAvailable(glfw glm)
 
+# Set a path to the compiled shader directory to avoid IDE-specific CWD relative path issues
+set(COMPILED_SHADERS_DIR "${CMAKE_SOURCE_DIR}/engine/shaders/bin/")
+
 # Engine executable
 add_executable(engine
         src/main.cpp
         src/FirstApp.hpp
         src/FirstApp.cpp
+        src/Pipeline.hpp
+        src/Pipeline.cpp
         src/Window.hpp
         src/Window.cpp
 )
+
+# Expose the compiled shaders directory to C++ as a compile-time constant string macro
+target_compile_definitions(engine PRIVATE COMPILED_SHADERS_DIR="${COMPILED_SHADERS_DIR}")
 
 # Link libraries
 target_link_libraries(engine PRIVATE

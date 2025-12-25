@@ -1,5 +1,6 @@
 #pragma once
 #include "Window.hpp"
+#include "Pipeline.hpp"
 
 namespace engine {
   class FirstApp {
@@ -11,5 +12,7 @@ namespace engine {
 
   private:
     Window window{WIDTH, HEIGHT, "Vulkan Engine"};
+    Pipeline pipeline{std::string(COMPILED_SHADERS_DIR) + "simple_shader.vert.spv",
+                      std::string(COMPILED_SHADERS_DIR) + "simple_shader.frag.spv"};
   };
 }

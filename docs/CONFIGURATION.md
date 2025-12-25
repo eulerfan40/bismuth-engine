@@ -8,6 +8,7 @@ Quick reference for technical decisions and versions.
 - **Graphics:** Vulkan 1.3+
 - **Build:** CMake 3.27+
 - **Libraries:** Vulkan Headers, volk, GLFW, GLM
+- **Dev Tools** Vulkan SDK
 
 ## Dependencies
 
@@ -23,7 +24,6 @@ Using `GIT_SHALLOW TRUE` to grab latest from each repo without previous version 
 **Latest dependencies:**
 - All are stable, mature libraries
 - Gets bug fixes automatically
-- Can pin versions later if needed
 
 ## Build Configuration
 
@@ -34,28 +34,50 @@ FetchContent_MakeAvailable(library)
 ```
 
 **Why this approach:**
-- Self-contained (no vcpkg/conan needed)
-- Compiler agnostic (builds from source)
-- Transparent (see exact versions in CMakeLists.txt)
+- Self-contained: no vcpkg/conan needed, no global downloads needed
+- Compiler agnostic: builds from source, important for future cross-platform support
 
 **volk configuration:**
 - Vulkan headers available first
 - Then volk builds against them
-- No system-wide installed Vulkan SDK needed for development
+- The Vulkan SDK does not provide the headers
+
+## Development Tools
+
+**Vulkan SDK:**
+- **Provides:** Shader compilation (`glslc`), validation layers, debugging tools
+- The Vulkan SDK must be installed and path added to environment variables
+- Comes bundled with glslc by default which is used to compile shader source code
+
+**Shader Compilation:**
+- Compiler: `glslc` (from Vulkan SDK)
+- Source: `engine/shaders/src/*.vert`, `*.frag`
+- Output: `engine/shaders/bin/*.spv` (SPIR-V bytecode)
+- Script: `engine/scripts/compile.bat` (Windows)
 
 ## Project Structure
 
 ```
 vulkan-engine/
-├── engine/          # Core engine code
-│   └── src/        # Source files
-├── docs/            # Documentation
-└── CMakeLists.txt   # Build configuration
+├── CMakeLists.txt           # Root (orchestrates subdirs)
+├── docs/                    # Documentation
+│   ├── SETUP.md
+│   └── CONFIGURATION.md
+└── engine/
+    ├── CMakeLists.txt       # Engine build config
+    ├── scripts/             # Build/utility scripts
+    │   └── compile.bat      # Shader compiler (Windows)
+    ├── shaders/             # Shader files
+    │   ├── src/            # Shader source (.vert, .frag)
+    │   └── bin/            # Compiled shaders (.spv, git-ignored)
+    └── src/                 # C++ source files
+        ├── main.cpp
 ```
 
 ## Naming Conventions
 
 **Files:** PascalCase for classes (`Window.cpp`, `FirstApp.hpp`)
+**Shaders:** snake_case (`simple_shader.vert`)
 **Executable:** lowercase (`engine`)
 **Project:** PascalCase (`VulkanEngine`)
 **Namespaces:** lowercase (`namespace engine`)
@@ -65,6 +87,3 @@ vulkan-engine/
 - **Windows:** MinGW (primary), MSVC
 - **Linux:** GCC 10+, Clang 10+
 - **macOS:** Apple Clang 12+
-
----
-*Notes to self - Dec 2025*

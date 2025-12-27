@@ -71,7 +71,7 @@ vulkan-engine/
     │   ├── src/            # Shader source (.vert, .frag)
     │   └── bin/            # Compiled shaders (.spv, git-ignored)
     └── src/                 # C++ source files
-        ├── main.cpp
+        └── main.cpp
 ```
 
 ## Naming Conventions

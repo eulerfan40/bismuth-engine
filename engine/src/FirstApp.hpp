@@ -1,6 +1,13 @@
 #pragma once
+
 #include "Window.hpp"
 #include "Pipeline.hpp"
+#include "Device.hpp"
+#include "SwapChain.hpp"
+
+//std
+#include <memory>
+#include <vector>
 
 namespace engine {
   class FirstApp {
@@ -8,11 +15,25 @@ namespace engine {
     static constexpr int WIDTH = 800;
     static constexpr int HEIGHT = 600;
 
+    FirstApp();
+    ~FirstApp();
+
+    FirstApp(const FirstApp&) = delete;
+    FirstApp &operator=(const FirstApp&) = delete;
+
     void run();
 
   private:
+    void createPipelineLayout();
+    void createPipeline();
+    void createCommandBuffers();
+    void drawFrame();
+
     Window window{WIDTH, HEIGHT, "Vulkan Engine"};
-    Pipeline pipeline{std::string(COMPILED_SHADERS_DIR) + "simple_shader.vert.spv",
-                      std::string(COMPILED_SHADERS_DIR) + "simple_shader.frag.spv"};
+    Device device{window};
+    SwapChain swapChain{device, window.getExtent()};
+    std::unique_ptr<Pipeline> pipeline;
+    VkPipelineLayout pipelineLayout;
+    std::vector<VkCommandBuffer> commandBuffers;
   };
 }

@@ -56,6 +56,10 @@ add_executable(engine
         src/main.cpp
         src/FirstApp.hpp
         src/FirstApp.cpp
+        src/Device.hpp
+        src/Device.cpp
+        src/SwapChain.hpp
+        src/SwapChain.cpp
         src/Pipeline.hpp
         src/Pipeline.cpp
         src/Window.hpp

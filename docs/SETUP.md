@@ -19,6 +19,27 @@ cd engine/scripts
 ./compile.bat
 ```
 
+**Linux / macOS:**
+1. Install Git, CMake, Compiler, Vulkan SDK
+2. Install system dependencies (see Platform Notes)
+3. Build:
+```bash
+mkdir build && cd build
+cmake ..
+cmake --build .
+```
+4. Compile shaders:
+```bash
+cd ../engine/scripts
+chmod +x compile.sh
+./compile.sh
+```
+5. Run:
+```bash
+cd ../../build
+./engine/bismuth_engine
+```
+
 ## What Gets Downloaded
 
 CMake FetchContent automatically grabs:
@@ -36,8 +57,8 @@ Later builds: ~5 seconds
 
 **Installation:**
 - Windows: https://vulkan.lunarg.com/sdk/home#windows
-- Linux: `sudo apt install vulkan-sdk`
-- macOS: Download from Vulkan website
+- Linux: `sudo apt install vulkan-sdk` (Ubuntu/Debian) or via package manager
+- macOS: Download from Vulkan website (LunarG). **Important:** You must source the `setup-env.sh` script included in the SDK to add tools like `glslc` to your PATH. Add `source ~/VulkanSDK/x.x.x.x/macOS/setup-env.sh` to your `.zshrc`.
 
 ## Shader Compilation
 
@@ -88,3 +109,13 @@ cd engine/scripts
 - Using MinGW by default (CLion bundled)
 - MSVC also works
 - Vulkan SDK: Make sure "Add to PATH" is checked during install
+
+**Linux:**
+- **Dependencies:** GLFW requires X11/Wayland libraries to build.
+  ```bash
+  sudo apt install libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
+  ```
+
+**macOS:**
+- **Dependencies:** Xcode Command Line Tools (`xcode-select --install`).
+- **MoltenVK:** The engine automatically enables the required `VK_KHR_portability_subset` extension.

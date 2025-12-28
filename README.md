@@ -31,8 +31,16 @@ cd bismuth-engine
 mkdir build && cd build
 cmake ..
 cmake --build .
-engine\bismuth_engine.exe
 ```
+
+**Run:**
+- **Windows:** `engine\bismuth_engine.exe`
+- **Linux/macOS:** `./engine/bismuth_engine`
+
+**Compile Shaders:**
+Before running, you must compile the shaders.
+- **Windows:** Run `engine\scripts\compile.bat`
+- **Linux/macOS:** Run `chmod +x engine/scripts/compile.sh && ./engine/scripts/compile.sh`
 
 **First build** takes 2-3 minutes as dependencies download automatically.
 

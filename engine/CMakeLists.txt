@@ -56,15 +56,22 @@ add_executable(bismuth_engine
         src/main.cpp
         src/FirstApp.hpp
         src/FirstApp.cpp
+        src/Window.hpp
+        src/Window.cpp
         src/Device.hpp
         src/Device.cpp
         src/SwapChain.hpp
         src/SwapChain.cpp
         src/Pipeline.hpp
         src/Pipeline.cpp
-        src/Window.hpp
-        src/Window.cpp
 )
+
+# Set compiler-specific warning flags
+if(MSVC)
+    target_compile_options(bismuth_engine PRIVATE /W4)
+else()
+    target_compile_options(bismuth_engine PRIVATE -Wall -Wextra -pedantic)
+endif()
 
 # Expose the compiled shaders directory to C++ as a compile-time constant string macro
 target_compile_definitions(bismuth_engine PRIVATE COMPILED_SHADERS_DIR="${COMPILED_SHADERS_DIR}")

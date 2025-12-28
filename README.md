@@ -1,11 +1,10 @@
 # Bismuth Engine
 
-Personal game engine project built with Vulkan and C++20. Currently only supported/tested on Windows with plans to 
-expand to Linux and MacOS in the future.
+Bismuth Engine is a cross-platform 3D game engine written in C++ and Vulkan.
 
 ## Status
 
-🚧 **Early Development** - Working towards rendering a triangle
+🚧 **Early Development** - Working towards 3D rendering.
 
 **Version:** 0.1.0
 

@@ -1,6 +1,6 @@
 # Setup Notes
 
-Personal reference for building and configuring this project.
+Quick reference for building and configuring this project.
 
 ## Quick Setup
 
@@ -21,7 +21,7 @@ cd engine/scripts
 
 **Linux / macOS:**
 1. Install Git, CMake, Compiler, Vulkan SDK
-2. Install system dependencies (see Platform Notes)
+2. Install system dependencies (see [Platform Notes](#platform-notes))
 3. Build:
 ```bash
 mkdir build && cd build
@@ -62,9 +62,19 @@ Later builds: ~5 seconds
 
 ## Shader Compilation
 
-**Location:** `engine/scripts/compile.bat`
+**Location:** `engine/scripts/`
 
 **Compile shaders:**
+
+You must compile shaders after every change in order to see the effects in the engine.
+
+Linux/MacOS
+```bash
+cd ../engine/scripts
+chmod +x compile.sh
+./compile.sh
+```
+Windows
 ```bash
 cd engine/scripts
 ./compile.bat    
@@ -80,40 +90,24 @@ cd engine/scripts
 
 **FetchContent vs vcpkg/conan/manual:**
 - No extra tools to install
-- Everything builds from source with my compiler
+- Everything builds from source with the compiler
 
 **volk vs Vulkan SDK for runtime:**
-- Don't need SDK installed to run the engine
+- The engine does not need to know the path of the SDK to load Vulkan
 - Dynamically loads Vulkan at runtime
 - SDK only needed for development tools (glslc, validation layers)
-
-## Troubleshooting
-
-**Git not found:**
-- Install Git, restart CLion
-
-**glslc not found:**
-- Install Vulkan SDK
-- Add SDK to PATH
-- Restart terminal/CLion
-
-**volk initialization fails:**
-- Update GPU drivers
-
-**Build errors:**
-- Delete `cmake-build-debug/` and rebuild
 
 ## Platform Notes
 
 **Windows:**
-- Using MinGW by default (CLion bundled)
+- Using MinGW by default
 - MSVC also works
 - Vulkan SDK: Make sure "Add to PATH" is checked during install
 
 **Linux:**
 - **Dependencies:** GLFW requires X11/Wayland libraries to build.
   ```bash
-  sudo apt install libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
+  sudo apt install libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev wayland-protocols
   ```
 
 **macOS:**

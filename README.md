@@ -1,4 +1,4 @@
-# Vulkan Engine
+# Bismuth Engine
 
 Personal game engine project built with Vulkan and C++20. Currently only supported/tested on Windows with plans to 
 expand to Linux and MacOS in the future.
@@ -26,12 +26,12 @@ expand to Linux and MacOS in the future.
 
 **Clone and Build:**
 ```bash
-git clone https://github.com/eulerfan40/vulkan-engine.git
-cd vulkan-engine
+git clone https://github.com/eulerfan40/bismuth-engine.git
+cd bismuth-engine
 mkdir build && cd build
 cmake ..
 cmake --build .
-engine\engine.exe
+engine\bismuth_engine.exe
 ```
 
 **First build** takes 2-3 minutes as dependencies download automatically.

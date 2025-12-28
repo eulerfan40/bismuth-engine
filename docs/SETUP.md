@@ -11,6 +11,7 @@ Personal reference for building and configuring this project.
 4. Build:
 ```bash
 cmake --build .
+engine/bismuth_engine.exe
 ```
 5. Compile shaders:
 ```bash

@@ -52,7 +52,7 @@ FetchContent_MakeAvailable(glfw glm)
 set(COMPILED_SHADERS_DIR "${CMAKE_SOURCE_DIR}/engine/shaders/bin/")
 
 # Engine executable
-add_executable(engine
+add_executable(bismuth_engine
         src/main.cpp
         src/FirstApp.hpp
         src/FirstApp.cpp
@@ -67,10 +67,10 @@ add_executable(engine
 )
 
 # Expose the compiled shaders directory to C++ as a compile-time constant string macro
-target_compile_definitions(engine PRIVATE COMPILED_SHADERS_DIR="${COMPILED_SHADERS_DIR}")
+target_compile_definitions(bismuth_engine PRIVATE COMPILED_SHADERS_DIR="${COMPILED_SHADERS_DIR}")
 
 # Link libraries
-target_link_libraries(engine PRIVATE
+target_link_libraries(bismuth_engine PRIVATE
         volk
         glfw
         glm::glm

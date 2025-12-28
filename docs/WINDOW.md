@@ -252,7 +252,7 @@ window = glfwCreateWindow(width, height, windowName.c_str(), nullptr, nullptr);
 |-----------|-------|---------|
 | `width` | 800 | Window width in pixels |
 | `height` | 600 | Window height in pixels |
-| `windowName.c_str()` | "Vulkan Engine" | Title bar text |
+| `windowName.c_str()` | "Bismuth Engine" | Title bar text |
 | `monitor` (4th) | `nullptr` | Windowed mode (not fullscreen) |
 | `share` (5th) | `nullptr` | No context sharing (not using OpenGL) |
 

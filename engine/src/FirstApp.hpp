@@ -29,7 +29,7 @@ namespace engine {
     void createCommandBuffers();
     void drawFrame();
 
-    Window window{WIDTH, HEIGHT, "Vulkan Engine"};
+    Window window{WIDTH, HEIGHT, "Bismuth Engine"};
     Device device{window};
     SwapChain swapChain{device, window.getExtent()};
     std::unique_ptr<Pipeline> pipeline;

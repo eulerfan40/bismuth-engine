@@ -187,11 +187,11 @@ void Device::createInstance() {
     // 2. Application info
     VkApplicationInfo appInfo = {};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "LittleVulkanEngine App";
-    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "No Engine";
-    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    appInfo.pApplicationName = "Bismuth Engine";
+    appInfo.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
+    appInfo.pEngineName = "Bismuth Engine";
+    appInfo.engineVersion = VK_MAKE_VERSION(0, 1, 0);
+    appInfo.apiVersion = VK_API_VERSION_1_3;
 
     // 3. Instance create info
     VkInstanceCreateInfo createInfo = {};
@@ -232,11 +232,11 @@ void Device::createInstance() {
 
 ```cpp
 VkApplicationInfo appInfo = {};
-appInfo.pApplicationName = "LittleVulkanEngine App";  // Your app name
-appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0); // Your app version
-appInfo.pEngineName = "No Engine";                     // Engine name
-appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);      // Engine version
-appInfo.apiVersion = VK_API_VERSION_1_0;               // Vulkan API version
+appInfo.pApplicationName = "Bismuth Engine";  // Your app name
+appInfo.applicationVersion = VK_MAKE_VERSION(0, 1, 0); // Your app version
+appInfo.pEngineName = "Bismuth Engine";                     // Engine name
+appInfo.engineVersion = VK_MAKE_VERSION(0, 1, 0);      // Engine version
+appInfo.apiVersion = VK_API_VERSION_1_3;               // Vulkan API version
 ```
 
 **Purpose:**
@@ -247,7 +247,7 @@ appInfo.apiVersion = VK_API_VERSION_1_0;               // Vulkan API version
 **Version Macros:**
 ```cpp
 VK_MAKE_VERSION(major, minor, patch)
-// VK_MAKE_VERSION(1, 0, 0) = 0x00400000
+// VK_MAKE_VERSION(0, 1, 0) = 0.1.0
 
 VK_API_VERSION_1_0  // Vulkan 1.0
 VK_API_VERSION_1_1  // Vulkan 1.1
@@ -255,9 +255,9 @@ VK_API_VERSION_1_2  // Vulkan 1.2
 VK_API_VERSION_1_3  // Vulkan 1.3 (recommended)
 ```
 
-**Why VK_API_VERSION_1_0?**
-- Maximum compatibility
-- Future: Upgrade to 1.3 for modern features
+**Why VK_API_VERSION_1_3?**
+- Modern features
+- Good compatibility
 - Device can still support newer versions
 
 ### Required Extensions

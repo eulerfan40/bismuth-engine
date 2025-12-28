@@ -58,7 +58,7 @@ FetchContent_MakeAvailable(library)
 ## Project Structure
 
 ```
-vulkan-engine/
+bismuth-engine/
 ├── CMakeLists.txt           # Root (orchestrates subdirs)
 ├── docs/                    # Documentation
 │   ├── SETUP.md
@@ -78,8 +78,8 @@ vulkan-engine/
 
 **Files:** PascalCase for classes (`Window.cpp`, `FirstApp.hpp`)
 **Shaders:** snake_case (`simple_shader.vert`)
-**Executable:** lowercase (`engine`)
-**Project:** PascalCase (`VulkanEngine`)
+**Executable:** lowercase (`bismuth_engine`)
+**Project:** PascalCase (`BismuthEngine`)
 **Namespaces:** lowercase (`namespace engine`)
 
 ## Compiler Support

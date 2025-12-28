@@ -1,6 +1,6 @@
 # Architecture Overview
 
-High-level overview of the Vulkan Engine architecture, design decisions, and system interactions.
+High-level overview of the Bismuth Engine architecture, design decisions, and system interactions.
 
 **Version:** 0.1.0
 
@@ -19,7 +19,7 @@ High-level overview of the Vulkan Engine architecture, design decisions, and sys
 
 ## System Overview
 
-The Vulkan Engine is a custom game engine built from scratch using modern C++20 and the Vulkan graphics API. The architecture follows a modular design where each major system (windowing, device management, rendering pipeline, swapchain) is encapsulated in its own class.
+The Bismuth Engine is a custom game engine built from scratch using modern C++20 and the Vulkan graphics API. The architecture follows a modular design where each major system (windowing, device management, rendering pipeline, swapchain) is encapsulated in its own class.
 
 ### High-Level Architecture Diagram
 

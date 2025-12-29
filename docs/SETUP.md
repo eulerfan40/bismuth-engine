@@ -2,7 +2,78 @@
 
 Quick reference for building and configuring this project.
 
-## Quick Setup
+## Windows
+
+## Linux
+
+### Prerequisites
+1. Verify that you are on the latest Vulkan-compatible GPU Drivers.
+2. Install Git:
+```bash
+sudo apt install git
+```
+3. Install CMake:
+```bash
+sudo apt install cmake
+```
+4. Install a C++ 20 compatible compiler. One example is gcc, which is bundled with build-essential:
+```bash
+sudo apt install build-essential
+```
+5. Install required system dependencies, which include pkg-config (required by CMake) and certain X11/Wayland libraries 
+   (required by glfw):
+```bash
+sudo apt install libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev libxkbcommon-dev 
+libwayland-dev wayland-protocols pkg-config
+```
+6. Install the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) Tarball. Extract the .tar.xz file to 
+   a convenient location. Within the extracted folder, locate the bin/ directory and copy its path. Then add the 
+   following line to your .bashrc or .
+   zshrc file (located in the home directory):
+```bash
+# Replace the following with the copied path to the Vulkan SDK bin/ folder
+source <path-to-bin-folder>/setup_env.sh
+```
+
+### Clone and Build
+
+1. Clone the GitHub repository:
+```bash
+git clone htpps://github.com/eulerfan40/bismuth-engine
+cd bismuth-engine
+```
+2. Build the source files:
+```bash
+mkdir build && cd build
+cmake ..
+cmake --build .
+```
+
+During the build process, CMake FetchContent automatically grabs:
+- Vulkan Headers (latest)
+- volk (latest) - Vulkan meta-loader
+- GLFW (latest) - windowing
+- GLM (latest) - math library
+
+First build: ~3 minutes \
+Later builds: ~5 seconds 
+
+### Compile Shaders and Run
+
+1. Before running the engine, and after any changes to the shader source files, you must run the shader compilation 
+   script:
+```bash
+cd ../engine/scripts
+chmod +x compile.sh
+./compile.sh
+```
+2. Run the engine executable:
+```bash
+cd ../../build
+./engine/bismuth_engine
+```
+
+## MacOS
 
 **Windows:**
 1. Install Git
@@ -56,7 +127,7 @@ Later builds: ~5 seconds
 **Purpose:** Shader compilation, validation layers, and debugging tools
 
 **Installation:**
-- Windows: https://vulkan.lunarg.com/sdk/home#windows
+- Windows: https://vulkan.lunarg.com/sdk/home
 - Linux: `sudo apt install vulkan-sdk` (Ubuntu/Debian) or via package manager
 - macOS: Download from Vulkan website (LunarG). **Important:** You must source the `setup-env.sh` script included in the SDK to add tools like `glslc` to your PATH. Add `source ~/VulkanSDK/x.x.x.x/macOS/setup-env.sh` to your `.zshrc`.
 

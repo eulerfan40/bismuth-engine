@@ -7,7 +7,12 @@ Quick reference for building and configuring this project.
 ## Linux
 
 ### Prerequisites
-1. Verify that you are on the latest Vulkan-compatible GPU Drivers.
+1. Verify that you are on the latest Vulkan-compatible GPU Drivers. One helpful tool to verify compatibility is 
+   vulkan-tools:
+```bash
+sudo apt install vulkan-tools
+vulkaninfo | less
+```
 2. Install Git:
 ```bash
 sudo apt install git
@@ -27,19 +32,19 @@ sudo apt install libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-d
 libwayland-dev wayland-protocols pkg-config
 ```
 6. Install the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) Tarball. Extract the .tar.xz file to 
-   a convenient location. Within the extracted folder, locate the bin/ directory and copy its path. Then add the 
+   a convenient location. Within the extracted folder, locate the setup_env.sh file and copy its path. Then add the 
    following line to your .bashrc or .
    zshrc file (located in the home directory):
 ```bash
-# Replace the following with the copied path to the Vulkan SDK bin/ folder
-source <path-to-bin-folder>/setup_env.sh
+# Replace the following with the copied path to the setup_env.sh file
+source <path-to-setup_env.sh>
 ```
 
 ### Clone and Build
 
 1. Clone the GitHub repository:
 ```bash
-git clone htpps://github.com/eulerfan40/bismuth-engine
+git clone https://github.com/eulerfan40/bismuth-engine.git
 cd bismuth-engine
 ```
 2. Build the source files:

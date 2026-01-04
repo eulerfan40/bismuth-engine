@@ -758,7 +758,9 @@ vkDestroyShaderModule(device, fragShaderModule, nullptr);  // Safe!
 
 ## Related Documentation
 
-- [SwapChain Component](SWAPCHAIN.md) - Provides render pass
-- [Architecture Overview](ARCHITECTURE.md) - Pipeline role
+- **[Model Component](MODEL.md)** - Provides vertex input descriptors to pipeline
+- **[SwapChain Component](SWAPCHAIN.md)** - Provides render pass for pipeline creation
+- **[Device Component](DEVICE.md)** - Creates and manages pipeline objects
+- **[Architecture Overview](ARCHITECTURE.md)** - Pipeline's role in rendering system
 
 ---

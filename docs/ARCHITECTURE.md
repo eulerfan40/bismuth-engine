@@ -52,11 +52,12 @@ The Bismuth Engine is a custom game engine built from scratch using modern C++20
 
 | Component | Responsibility | Dependencies |
 |-----------|---------------|--------------|
-| **FirstApp** | Application lifecycle, render loop coordination | Window, Device, SwapChain, Pipeline |
+| **FirstApp** | Application lifecycle, render loop coordination | Window, Device, SwapChain, Pipeline, Model |
 | **Window** | Window creation, input handling, Vulkan surface | volk, GLFW |
 | **Device** | Vulkan instance, physical/logical device, queues | Window |
 | **SwapChain** | Framebuffers, render passes, frame synchronization | Device |
-| **Pipeline** | Shader loading, graphics pipeline configuration | Device |
+| **Pipeline** | Shader loading, graphics pipeline configuration | Device, Model |
+| **Model** | Vertex data management, buffer creation, draw commands | Device |
 
 ---
 
@@ -191,6 +192,59 @@ Framebuffer Output
 - Validated once, runs anywhere
 - Faster loading than parsing GLSL at runtime
 
+### 5. Model System
+
+**Purpose:** Manages vertex data and vertex buffers for rendering geometry.
+
+**Key Responsibilities:**
+- Store vertex data in GPU memory
+- Define vertex input layout (binding and attribute descriptions)
+- Bind vertex buffers to command buffers
+- Issue draw commands
+
+**Vertex Structure:**
+```cpp
+struct Vertex {
+    glm::vec2 position;  // 2D position (currently)
+};
+```
+
+**Buffer Management:**
+- Creates `VkBuffer` for vertex data
+- Allocates `VkDeviceMemory` (host-visible, coherent)
+- Maps memory, copies data, unmaps
+- RAII cleanup in destructor
+
+**Vertex Input Descriptors:**
+- Binding descriptions: How to read buffer (stride, input rate)
+- Attribute descriptions: How to interpret data (format, location)
+- Used by Pipeline during creation
+
+**Rendering Commands:**
+```cpp
+model->bind(commandBuffer);   // Bind vertex buffer
+model->draw(commandBuffer);   // Issue draw call
+```
+
+**Design Decision: Hardcoded Vertices → Vertex Buffers**
+
+Previously, vertex positions were hardcoded in the vertex shader:
+```glsl
+vec2 positions[3] = vec2[](vec2(0.0, -0.5), vec2(0.5, 0.5), vec2(-0.5, 0.5));
+gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+```
+
+Now, vertices are loaded from CPU and passed via vertex buffers:
+```cpp
+std::vector<Model::Vertex> vertices {{{0.0f, -0.5f}}, {{0.5f, 0.5f}}, {{-0.5f, 0.5f}}};
+model = std::make_unique<Model>(device, vertices);
+```
+
+**Why this change?**
+- **Flexibility:** Load geometry from files, not hardcoded
+- **Scalability:** Multiple models can share shaders
+- **Industry standard:** Proper 3D engines use vertex buffers
+
 ---
 
 ## Initialization Flow
@@ -226,15 +280,24 @@ FirstApp::FirstApp()
   │   ├→ createFramebuffers()       // Per-image framebuffers
   │   └→ createSyncObjects()        // Semaphores + fences
   │
+  ├→ loadModels()
+  │   └→ Model(device, vertices)    // Create vertex buffers
+  │
   ├→ createPipelineLayout()         // Descriptor sets, push constants
   ├→ createPipeline()
   │   ├→ Read shader files (.spv)
   │   ├→ createShaderModule() (vert)
   │   ├→ createShaderModule() (frag)
+  │   ├→ Get vertex input descriptors from Model
   │   └→ vkCreateGraphicsPipelines()
   │
   └→ createCommandBuffers()
-      └→ Record draw commands (one per swapchain image)
+      ├→ Begin command buffer recording
+      ├→ Begin render pass
+      ├→ pipeline->bind()            // Bind graphics pipeline
+      ├→ model->bind()               // Bind vertex buffer
+      ├→ model->draw()               // Issue draw command
+      └→ End render pass
 ```
 
 ---
@@ -318,6 +381,10 @@ Frame 3:  CPU WAITS for Frame 0 fence → Reuse resources
 ```cpp
 ~FirstApp()
   └→ vkDestroyPipelineLayout()
+
+~Model()
+  ├→ vkDestroyBuffer(vertexBuffer)
+  └→ vkFreeMemory(vertexBufferMemory)
 
 ~Pipeline()
   ├→ vkDestroyShaderModule(vert)
@@ -410,4 +477,9 @@ Window& operator=(const Window&) = delete; // No copy assignment
 
 ---
 
-**Next:** See component-specific documentation for deep dives into each system.
+**Component Documentation:**
+- **[Window Component](WINDOW.md)** - Window creation and surface management
+- **[Device Component](DEVICE.md)** - Vulkan device initialization and management
+- **[SwapChain Component](SWAPCHAIN.md)** - Frame management and synchronization
+- **[Pipeline Component](PIPELINE.md)** - Graphics pipeline configuration
+- **[Model Component](MODEL.md)** - Vertex data and buffer management

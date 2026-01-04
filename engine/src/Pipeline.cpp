@@ -1,4 +1,5 @@
 #include "Pipeline.hpp"
+#include "Model.hpp"
 
 //std
 #include <fstream> //file input/output
@@ -88,15 +89,16 @@ namespace engine {
     shaderStages[1].pSpecializationInfo = nullptr;
 
     // -------------------- VERTEX INPUT STATE --------------------
+    auto bindingDescriptions = Model::Vertex::getBindingDescriptions();
+    auto attributeDescriptions = Model::Vertex::getAttributeDescriptions();
     // Describes how vertex data is read from vertex buffers
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    // No vertex bindings or attributes are defined. This implies vertex data is generated in the shader or not used
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
-    vertexInputInfo.pVertexAttributeDescriptions = nullptr;
-    vertexInputInfo.pVertexBindingDescriptions = nullptr;
+    vertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size());
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+    vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
 
     // -------------------- VIEWPORT STATE --------------------
     // This struct connects the viewport and scissor to the pipeline

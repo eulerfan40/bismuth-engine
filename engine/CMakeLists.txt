@@ -64,6 +64,8 @@ add_executable(bismuth_engine
         src/SwapChain.cpp
         src/Pipeline.hpp
         src/Pipeline.cpp
+        src/Model.hpp
+        src/Model.cpp
 )
 
 # Set compiler-specific warning flags

@@ -1065,4 +1065,7 @@ SwapChain::~SwapChain() {
 
 ---
 
-**Next Component:** [Pipeline Component Documentation](PIPELINE.md)
+**Related Documentation:**
+- **[Pipeline Component](PIPELINE.md)** - Uses SwapChain's render pass
+- **[Device Component](DEVICE.md)** - Provides Vulkan device and queues
+- **[Architecture Overview](ARCHITECTURE.md)** - Frame synchronization details

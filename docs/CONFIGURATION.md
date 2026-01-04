@@ -53,25 +53,44 @@ FetchContent_MakeAvailable(library)
 - Compiler: `glslc` (from Vulkan SDK)
 - Source: `engine/shaders/src/*.vert`, `*.frag`
 - Output: `engine/shaders/bin/*.spv` (SPIR-V bytecode)
-- Script: `engine/scripts/compile.bat` (Windows)
+- Scripts: 
+  - Windows: `engine/scripts/compile.bat`
+  - Linux/macOS: `engine/scripts/compile.sh`
 
 ## Project Structure
 
 ```
 bismuth-engine/
 ├── CMakeLists.txt           # Root (orchestrates subdirs)
+├── LICENSE                  # MIT License
+├── README.md                # Project overview
 ├── docs/                    # Documentation
-│   ├── SETUP.md
-│   └── CONFIGURATION.md
+│   ├── ARCHITECTURE.md      # High-level architecture overview
+│   ├── CONFIGURATION.md     # Technical decisions and versions
+│   ├── DEVICE.md            # Device component documentation
+│   ├── MODEL.md             # Model component documentation
+│   ├── PIPELINE.md          # Pipeline component documentation
+│   ├── SETUP.md             # Build instructions
+│   ├── SWAPCHAIN.md         # SwapChain component documentation
+│   └── WINDOW.md            # Window component documentation
 └── engine/
     ├── CMakeLists.txt       # Engine build config
     ├── scripts/             # Build/utility scripts
-    │   └── compile.bat      # Shader compiler (Windows)
+    │   ├── compile.bat      # Shader compiler (Windows)
+    │   └── compile.sh       # Shader compiler (Linux/macOS)
     ├── shaders/             # Shader files
-    │   ├── src/            # Shader source (.vert, .frag)
-    │   └── bin/            # Compiled shaders (.spv, git-ignored)
+    │   ├── src/             # Shader source (.vert, .frag)
+    │   │   ├── simple_shader.vert
+    │   │   └── simple_shader.frag
+    │   └── bin/             # Compiled shaders (.spv, git-ignored)
     └── src/                 # C++ source files
-        └── main.cpp
+        ├── main.cpp         # Entry point
+        ├── FirstApp.hpp/cpp # Application orchestration
+        ├── Window.hpp/cpp   # Window management
+        ├── Device.hpp/cpp   # Vulkan device setup
+        ├── SwapChain.hpp/cpp # Frame management
+        ├── Pipeline.hpp/cpp # Graphics pipeline
+        └── Model.hpp/cpp    # Vertex data management
 ```
 
 ## Naming Conventions

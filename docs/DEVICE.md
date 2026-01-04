@@ -877,4 +877,8 @@ vkDestroyDevice(device_, nullptr);       // ← Device needs instance!
 
 ---
 
-**Next Component:** [SwapChain Component Documentation](SWAPCHAIN.md)
+**Related Documentation:**
+- **[SwapChain Component](SWAPCHAIN.md)** - Uses Device for frame management
+- **[Model Component](MODEL.md)** - Uses Device for buffer creation
+- **[Window Component](WINDOW.md)** - Provides surface for Device
+- **[Architecture Overview](ARCHITECTURE.md)** - Device initialization flow

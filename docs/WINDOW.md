@@ -456,4 +456,7 @@ Window window = std::move(createWindow());
 
 ---
 
-**Next Component:** [Device Component Documentation](DEVICE.md)
+**Related Documentation:**
+- **[Device Component](DEVICE.md)** - Uses Window to create VkSurfaceKHR
+- **[Architecture Overview](ARCHITECTURE.md)** - Window's role in initialization
+- **[Setup Guide](SETUP.md)** - Platform-specific window requirements

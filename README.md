@@ -12,7 +12,9 @@ Bismuth Engine is a cross-platform 3D game engine written in C++ and Vulkan.
 
 - ✅ Window creation (GLFW)
 - ✅ Vulkan initialization (volk)
-- ✅ Display a triangle to the screen
+- ✅ Graphics pipeline with shader support
+- ✅ Vertex buffer management
+- ✅ Render a triangle to the screen
 
 ## Building
 
@@ -56,7 +58,16 @@ The below dependencies are downloaded automatically using CMake FetchContent:
 In addition, you must manually download and install the Vulkan SDK. It comes with 
 glslc, which is used to compile shader code. It also provides validation and debugging tools.
 
-## Notes
+## Documentation
 
-- [Setup Guide](docs/SETUP.md) - Build instructions and troubleshooting
-- [Configuration](docs/CONFIGURATION.md) - Technical decisions and versions
+- **[Setup Guide](docs/SETUP.md)** - Build instructions and troubleshooting
+- **[Architecture Overview](docs/ARCHITECTURE.md)** - System design and component interactions
+- **[Configuration](docs/CONFIGURATION.md)** - Technical decisions and versions
+
+### Component Documentation
+
+- **[Window](docs/WINDOW.md)** - Window creation and surface management
+- **[Device](docs/DEVICE.md)** - Vulkan device initialization
+- **[SwapChain](docs/SWAPCHAIN.md)** - Frame management and synchronization
+- **[Pipeline](docs/PIPELINE.md)** - Graphics pipeline configuration
+- **[Model](docs/MODEL.md)** - Vertex data and buffer management

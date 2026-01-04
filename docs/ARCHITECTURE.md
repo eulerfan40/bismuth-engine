@@ -192,7 +192,188 @@ Framebuffer Output
 - Validated once, runs anywhere
 - Faster loading than parsing GLSL at runtime
 
-### 5. Model System
+### 4. Renderer
+
+**Purpose:** High-level rendering abstraction managing frame lifecycle and command buffers.
+
+**Key Responsibilities:**
+- Frame lifecycle management (begin/end frame)
+- Command buffer allocation and management
+- Swapchain creation and recreation
+- Render pass control (begin/end)
+- State tracking and validation
+
+**Class Structure:**
+```cpp
+class Renderer {
+public:
+    Renderer(Window& window, Device& device);
+    
+    VkCommandBuffer beginFrame();
+    void endFrame();
+    void beginSwapChainRenderPass(VkCommandBuffer commandBuffer);
+    void endSwapChainRenderPass(VkCommandBuffer commandBuffer);
+    
+    VkRenderPass getSwapChainRenderPass() const;
+    bool isFrameInProgress() const;
+    VkCommandBuffer getCurrentCommandBuffer() const;
+    int getFrameIndex() const;
+
+private:
+    void createCommandBuffers();
+    void freeCommandBuffers();
+    void recreateSwapChain();
+
+    Window& window;
+    Device& device;
+    std::unique_ptr<SwapChain> swapChain;
+    std::vector<VkCommandBuffer> commandBuffers;
+    bool isFrameStarted{false};
+};
+```
+
+**Frame Lifecycle:**
+
+```
+[Idle] → beginFrame() → [Recording] → endFrame() → [Idle]
+           ↓                             ↑
+       Returns CommandBuffer         Submits & Presents
+```
+
+**Typical Usage:**
+```cpp
+Renderer renderer{window, device};
+
+while (!window.shouldClose()) {
+    glfwPollEvents();
+    
+    if (auto commandBuffer = renderer.beginFrame()) {
+        renderer.beginSwapChainRenderPass(commandBuffer);
+        // Render here
+        renderer.endSwapChainRenderPass(commandBuffer);
+        renderer.endFrame();
+    }
+}
+```
+
+**Design Benefits:**
+- **Separation of Concerns:** FirstApp no longer manages swapchain/command buffers
+- **Reusability:** Can be used by multiple application classes
+- **Safety:** Assertions prevent invalid state transitions
+- **Simplicity:** Clean API hides Vulkan complexity
+
+**Key Features:**
+- Automatic swapchain recreation on window resize
+- Proper frame synchronization (triple buffering)
+- Minimization handling (pauses rendering when window minimized)
+- Format verification after swapchain recreation
+
+**See:** [RENDERER.md](RENDERER.md) for complete Renderer documentation
+
+### 5. Render Systems
+
+**Purpose:** Specialized rendering logic for specific categories of objects.
+
+**Key Responsibilities:**
+- Pipeline management (create and own graphics pipeline)
+- Shader loading (specific to object type)
+- Rendering logic (iterate over objects, issue draw commands)
+- Push constants (prepare and upload per-object data)
+
+**Pattern:** System pattern from Entity-Component-System (ECS) architecture.
+
+**SimpleRenderSystem Example:**
+```cpp
+class SimpleRenderSystem {
+public:
+    SimpleRenderSystem(Device& device, VkRenderPass renderPass);
+    
+    void renderGameObjects(VkCommandBuffer commandBuffer, 
+                          std::vector<GameObject>& gameObjects);
+
+private:
+    void createPipelineLayout();
+    void createPipeline(VkRenderPass renderPass);
+
+    Device& device;
+    std::unique_ptr<Pipeline> pipeline;
+    VkPipelineLayout pipelineLayout;
+};
+```
+
+**Rendering Flow:**
+```cpp
+void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, 
+                                          std::vector<GameObject>& gameObjects) {
+    // 1. Bind pipeline once for all objects
+    pipeline->bind(commandBuffer);
+
+    // 2. Render each game object
+    for (auto& obj : gameObjects) {
+        // 3. Update animation
+        obj.transform2D.rotation += 0.01f;
+
+        // 4. Prepare push constants from GameObject
+        SimplePushConstantData push{};
+        push.offset = obj.transform2D.translation;
+        push.color = obj.color;
+        push.transform = obj.transform2D.mat2();
+
+        // 5. Upload push constants to GPU
+        vkCmdPushConstants(commandBuffer, pipelineLayout, ...);
+
+        // 6. Bind model's vertex buffer
+        obj.model->bind(commandBuffer);
+        
+        // 7. Issue draw call
+        obj.model->draw(commandBuffer);
+    }
+}
+```
+
+**Architecture Pattern:**
+
+```
+Systems (Logic)          Components (Data)
+     ↓                         ↑
+SimpleRenderSystem  ←→  GameObject{Transform2D, Model, Color}
+ParticleSystem      ←→  ParticleEntity{Transform, ParticleData}
+PhysicsSystem       ←→  RigidBody{Transform, PhysicsData}
+```
+
+**Multiple Render Systems:**
+```cpp
+void FirstApp::run() {
+    SimpleRenderSystem simpleSystem{device, renderer.getSwapChainRenderPass()};
+    ParticleSystem particleSystem{device, renderer.getSwapChainRenderPass()};
+    UISystem uiSystem{device, renderer.getSwapChainRenderPass()};
+
+    while (!window.shouldClose()) {
+        if (auto commandBuffer = renderer.beginFrame()) {
+            renderer.beginSwapChainRenderPass(commandBuffer);
+            
+            // Render in order
+            simpleSystem.renderGameObjects(commandBuffer, gameObjects);
+            particleSystem.render(commandBuffer, particles);
+            uiSystem.render(commandBuffer, uiElements);
+            
+            renderer.endSwapChainRenderPass(commandBuffer);
+            renderer.endFrame();
+        }
+    }
+}
+```
+
+**Design Benefits:**
+- **Single Responsibility:** Each system handles one rendering approach
+- **Modularity:** Add/remove systems independently
+- **Scalability:** Easy to add new rendering techniques
+- **Testability:** Test each system in isolation
+- **Performance:** Different pipelines optimized for different object types
+
+**See:** [RENDERSYSTEM.md](RENDERSYSTEM.md) for complete render system documentation
+
+### 6. Model System
 
 **Purpose:** Manages vertex data and vertex buffers for rendering geometry.
 
@@ -450,88 +631,144 @@ FirstApp::FirstApp()
   │   │   └→ volkLoadDevice()       // Load device functions
   │   └→ createCommandPool()        // Command buffer allocation
   │
-  ├→ SwapChain(device, window extent)
-  │   ├→ createSwapChain()          // Create swapchain images
-  │   ├→ createImageViews()         // Wrap images in views
-  │   ├→ createRenderPass()         // Define render pass
-  │   ├→ createDepthResources()     // Depth buffer
-  │   ├→ createFramebuffers()       // Per-image framebuffers
-  │   └→ createSyncObjects()        // Semaphores + fences
+  ├→ Renderer(window, device)
+  │   ├→ recreateSwapChain()
+  │   │   └→ SwapChain(device, window extent)
+  │   │       ├→ createSwapChain()          // Create swapchain images
+  │   │       ├→ createImageViews()         // Wrap images in views
+  │   │       ├→ createRenderPass()         // Define render pass
+  │   │       ├→ createDepthResources()     // Depth buffer
+  │   │       ├→ createFramebuffers()       // Per-image framebuffers
+  │   │       └→ createSyncObjects()        // Semaphores + fences
+  │   └→ createCommandBuffers()
   │
-  ├→ loadModels()
-  │   └→ Model(device, vertices)    // Create vertex buffers
+  └→ loadGameObjects()
+      └→ GameObject::createGameObject()
+          ├→ Assign Model (shared geometry)
+          ├→ Set color
+          └→ Set transform (translation, rotation, scale)
+
+FirstApp::run()
+  ↓
+  ├→ Create render systems
+  │   └→ SimpleRenderSystem(device, renderer.getSwapChainRenderPass())
+  │       ├→ createPipelineLayout()         // Push constants
+  │       └→ createPipeline()
+  │           ├→ Read shader files (.spv)
+  │           ├→ createShaderModule() (vert)
+  │           ├→ createShaderModule() (frag)
+  │           ├→ Get vertex input descriptors from Model
+  │           └→ vkCreateGraphicsPipelines()
   │
-  ├→ createPipelineLayout()         // Descriptor sets, push constants
-  ├→ createPipeline()
-  │   ├→ Read shader files (.spv)
-  │   ├→ createShaderModule() (vert)
-  │   ├→ createShaderModule() (frag)
-  │   ├→ Get vertex input descriptors from Model
-  │   └→ vkCreateGraphicsPipelines()
-  │
-  └→ createCommandBuffers()
-      ├→ Begin command buffer recording
-      ├→ Begin render pass
-      ├→ pipeline->bind()            // Bind graphics pipeline
-      ├→ model->bind()               // Bind vertex buffer
-      ├→ model->draw()               // Issue draw command
-      └→ End render pass
+  └→ Main loop
+      ├→ glfwPollEvents()
+      └→ renderer.beginFrame()
+          ├→ renderer.beginSwapChainRenderPass()
+          ├→ renderSystem.renderGameObjects()  // Render all systems
+          ├→ renderer.endSwapChainRenderPass()
+          └→ renderer.endFrame()
 ```
 
 ---
 
 ## Render Loop
 
-### Frame Rendering Sequence
+### Frame Rendering Sequence (New Architecture)
 
 ```cpp
-while (!window.shouldClose()) {
-    glfwPollEvents();              // Handle input
-    drawFrame();                   // Render one frame
+void FirstApp::run() {
+    SimpleRenderSystem renderSystem{device, renderer.getSwapChainRenderPass()};
+
+    while (!window.shouldClose()) {
+        glfwPollEvents();
+        
+        if (auto commandBuffer = renderer.beginFrame()) {
+            renderer.beginSwapChainRenderPass(commandBuffer);
+            renderSystem.renderGameObjects(commandBuffer, gameObjects);
+            renderer.endSwapChainRenderPass(commandBuffer);
+            renderer.endFrame();
+        }
+    }
+    
+    vkDeviceWaitIdle(device.device());
 }
-vkDeviceWaitIdle();                // Wait for GPU to finish
 ```
 
-### drawFrame() Breakdown
+### Frame Breakdown (Renderer-Based)
 
 ```cpp
-1. acquireNextImage(&imageIndex)
-   ├→ vkWaitForFences(inFlightFences[currentFrame])  // Wait for frame
-   └→ vkAcquireNextImageKHR(imageAvailableSemaphores[currentFrame])
-      ├→ Returns imageIndex (0, 1, or 2)
-      └→ Check for VK_ERROR_OUT_OF_DATE_KHR → recreateSwapChain()
-
-2. recordCommandBuffer(imageIndex)
+1. renderer.beginFrame()
+   ├→ assert(!isFrameStarted)  // Validate state
+   ├→ swapChain->acquireNextImage(&currentImageIndex)
+   │  ├→ vkWaitForFences(inFlightFences[currentFrame])
+   │  └→ vkAcquireNextImageKHR(imageAvailableSemaphores[currentFrame])
+   │     ├→ Check for VK_ERROR_OUT_OF_DATE_KHR → recreateSwapChain(), return nullptr
+   │     └→ Returns imageIndex (0, 1, or 2)
+   ├→ isFrameStarted = true
+   ├→ Get current command buffer
    ├→ vkBeginCommandBuffer()
+   └→ Return commandBuffer
+
+2. renderer.beginSwapChainRenderPass(commandBuffer)
+   ├→ assert(isFrameStarted)  // Validate state
    ├→ vkCmdBeginRenderPass()
+   │  ├→ Set clear values (color, depth)
+   │  └→ Bind framebuffer for currentImageIndex
    ├→ vkCmdSetViewport() (dynamic state)
-   ├→ vkCmdSetScissor() (dynamic state)
-   ├→ renderGameObjects(commandBuffer)
-   │  ├→ pipeline->bind()
-   │  └→ For each GameObject:
-   │     ├→ Update transform (animation)
-   │     ├→ Build push constants from GameObject
-   │     ├→ vkCmdPushConstants() (transform, position, color)
-   │     ├→ model->bind()
-   │     └→ model->draw()
-   ├→ vkCmdEndRenderPass()
-   └→ vkEndCommandBuffer()
+   └→ vkCmdSetScissor() (dynamic state)
 
-3. submitCommandBuffers(commandBuffer, imageIndex)
-   ├→ Wait on: imageAvailableSemaphores[currentFrame]
-   ├→ Execute: commandBuffers[imageIndex]
-   ├→ Signal: renderFinishedSemaphores[currentFrame]
-   └→ vkQueueSubmit(inFlightFences[currentFrame])
+3. renderSystem.renderGameObjects(commandBuffer, gameObjects)
+   ├→ pipeline->bind(commandBuffer)
+   └→ For each GameObject:
+      ├→ Update transform (animation)
+      ├→ Build push constants from GameObject
+      │  ├→ push.transform = obj.transform2D.mat2()
+      │  ├→ push.offset = obj.transform2D.translation
+      │  └→ push.color = obj.color
+      ├→ vkCmdPushConstants() (upload to GPU)
+      ├→ obj.model->bind(commandBuffer)
+      └→ obj.model->draw(commandBuffer)
 
-4. Present to screen
-   ├→ Wait on: renderFinishedSemaphores[currentFrame]
-   ├→ vkQueuePresentKHR()
-   └→ Check for VK_ERROR_OUT_OF_DATE_KHR / VK_SUBOPTIMAL_KHR / window resize
-      └→ If out of date → recreateSwapChain()
+4. renderer.endSwapChainRenderPass(commandBuffer)
+   ├→ assert(isFrameStarted)  // Validate state
+   └→ vkCmdEndRenderPass()
 
-5. Advance frame counter
-   └→ currentFrame = (currentFrame + 1) % 3
+5. renderer.endFrame()
+   ├→ assert(isFrameStarted)  // Validate state
+   ├→ vkEndCommandBuffer()
+   ├→ swapChain->submitCommandBuffers(&commandBuffer, &currentImageIndex)
+   │  ├→ Wait on: imageAvailableSemaphores[currentFrame]
+   │  ├→ Execute: commandBuffer
+   │  ├→ Signal: renderFinishedSemaphores[currentFrame]
+   │  ├→ vkQueueSubmit(inFlightFences[currentFrame])
+   │  └→ vkQueuePresentKHR()
+   │     └→ Check for VK_ERROR_OUT_OF_DATE_KHR / VK_SUBOPTIMAL_KHR / window resize
+   │        └→ If out of date → recreateSwapChain()
+   ├→ isFrameStarted = false
+   └→ currentFrameIndex = (currentFrameIndex + 1) % MAX_FRAMES_IN_FLIGHT
 ```
+
+**Key Architecture Changes:**
+
+1. **Renderer Abstraction:**
+   - Was: FirstApp managed swapchain and command buffers directly
+   - Now: Renderer encapsulates all frame lifecycle complexity
+   - Benefit: FirstApp focuses on scene management, not rendering details
+
+2. **Render Systems:**
+   - Was: All rendering logic in FirstApp::renderGameObjects()
+   - Now: Separate SimpleRenderSystem class with own pipeline
+   - Benefit: Modular, extensible, supports multiple render systems
+
+3. **Command Buffer Recording:**
+   - Was: Pre-recorded command buffers, recreated on resize
+   - Now: Recorded every frame within beginFrame()/endFrame()
+   - Benefit: Supports dynamic content, simpler state management
+
+4. **State Validation:**
+   - Assertions ensure correct order: beginFrame() → renderPass → endFrame()
+   - Prevents common errors like double-ending command buffers
+   - Debug builds catch mistakes immediately
 
 ### Synchronization Deep Dive
 

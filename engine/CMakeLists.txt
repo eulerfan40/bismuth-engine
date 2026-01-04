@@ -66,8 +66,11 @@ add_executable(bismuth_engine
         src/Pipeline.cpp
         src/Model.hpp
         src/Model.cpp
-        src/GameObject.cpp
         src/GameObject.hpp
+        src/Renderer.hpp
+        src/Renderer.cpp
+        src/SimpleRenderSystem.hpp
+        src/SimpleRenderSystem.cpp
 )
 
 # Set compiler-specific warning flags

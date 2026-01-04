@@ -34,7 +34,7 @@ namespace engine {
     GameObject(GameObject &&) = default;
     GameObject &operator=(GameObject &&) = default;
 
-    const id_t getId() { return id; }
+    id_t getId() const { return id; }
 
     std::shared_ptr<Model> model{};
     glm::vec3 color{};

@@ -85,6 +85,12 @@ public:
     VkResult acquireNextImage(uint32_t *imageIndex);
     VkResult submitCommandBuffers(const VkCommandBuffer *buffers, uint32_t *imageIndex);
 
+    // Format compatibility check
+    bool compareSwapChainFormats(const SwapChain &swapChain) const {
+      return swapChain.swapChainDepthFormat == swapChainDepthFormat &&
+             swapChain.swapChainImageFormat == swapChainImageFormat;
+    }
+
 private:
     void createSwapChain();
     void createImageViews();
@@ -107,6 +113,7 @@ private:
     std::vector<VkImage> swapChainImages;
     std::vector<VkImageView> swapChainImageViews;
     VkFormat swapChainImageFormat;
+    VkFormat swapChainDepthFormat;
     VkExtent2D swapChainExtent;
 
     VkRenderPass renderPass;
@@ -199,6 +206,91 @@ swapChain = std::make_unique<SwapChain>(device, newExtent, std::move(swapChain))
 ```
 
 The `std::move()` transfers ownership of the old swapchain to the new constructor, allowing proper cleanup after recreation completes.
+
+### Format Comparison
+
+```cpp
+bool compareSwapChainFormats(const SwapChain &swapChain) const {
+    return swapChain.swapChainDepthFormat == swapChainDepthFormat &&
+           swapChain.swapChainImageFormat == swapChainImageFormat;
+}
+```
+
+**Purpose:** Verify that a new swapchain has compatible formats with the old one.
+
+**Why This Matters:**
+
+When recreating a swapchain (e.g., after window resize), the image and depth formats should remain consistent:
+
+- **Image Format:** Usually `VK_FORMAT_B8G8R8A8_SRGB`
+- **Depth Format:** Usually `VK_FORMAT_D32_SFLOAT` or `VK_FORMAT_D24_UNORM_S8_UINT`
+
+**If formats change:**
+- Graphics pipelines become incompatible (created for specific formats)
+- Render passes become incompatible (attachments don't match)
+- Requires rebuilding entire rendering pipeline
+
+**Usage in Renderer:**
+
+```cpp
+void Renderer::recreateSwapChain() {
+    auto extent = window.getExtent();
+    while (extent.width == 0 || extent.height == 0) {
+        extent = window.getExtent();
+        glfwWaitEvents();
+    }
+
+    vkDeviceWaitIdle(device.device());
+
+    if (swapChain == nullptr) {
+        swapChain = std::make_unique<SwapChain>(device, extent);
+    } else {
+        std::shared_ptr<SwapChain> oldSwapChain = std::move(swapChain);
+        swapChain = std::make_unique<SwapChain>(device, extent, oldSwapChain);
+
+        // Verify formats didn't change
+        if (!oldSwapChain->compareSwapChainFormats(*swapChain.get())) {
+            throw std::runtime_error("Swap chain image or depth format has changed!");
+        }
+    }
+}
+```
+
+**When Formats Might Change:**
+- Different GPU drivers prefer different formats
+- Display configuration changed (HDR enabled/disabled)
+- Surface capabilities changed (rare)
+
+**How to Handle Format Changes:**
+
+If formats do change (very rare), you would need to:
+
+1. Recreate pipeline with new render pass
+2. Ensure shaders compatible with new formats
+3. Update any format-dependent logic
+
+**Current Implementation:**
+- Throws exception if formats change
+- Forces developer to handle format changes explicitly
+- Prevents subtle rendering bugs from format mismatches
+
+**Depth Format Storage:**
+
+The depth format is now stored during depth resource creation:
+
+```cpp
+void SwapChain::createDepthResources() {
+    VkFormat depthFormat = findDepthFormat();
+    swapChainDepthFormat = depthFormat;  // Store for comparison
+    // ... create depth images
+}
+```
+
+**Why Store Both Formats?**
+- `swapChainImageFormat` - Color attachment format (SRGB, etc.)
+- `swapChainDepthFormat` - Depth attachment format (D32, D24S8, etc.)
+- Both must remain consistent across swapchain recreations
+- Render systems depend on these formats
 
 ---
 

@@ -255,22 +255,122 @@ model = std::make_unique<Model>(device, vertices);
 **Color Interpolation:**
 Per-vertex colors are automatically interpolated across triangle faces by the GPU rasterizer. The vertex shader outputs colors, which are then smoothly blended between vertices during rasterization, and the fragment shader receives the interpolated color for each pixel. This creates smooth color gradients without additional computation.
 
-### 6. Push Constants
+### 6. GameObject System
+
+**Purpose:** Entity representation with transform, rendering, and identity.
+
+**Key Responsibilities:**
+- Unique identification for scene management
+- Encapsulate model, color, and transform data
+- Enable component-based architecture
+- Support multiple instances of shared geometry
+
+**Class Structure:**
+```cpp
+class GameObject {
+public:
+    using id_t = unsigned int;
+    
+    static GameObject createGameObject();  // Factory method
+    
+    const id_t getId() { return id; }
+    
+    std::shared_ptr<Model> model{};
+    glm::vec3 color{};
+    Transform2DComponent transform2D{};
+    
+private:
+    GameObject(id_t objId) : id{objId} {}
+    id_t id;
+};
+```
+
+**Transform2DComponent:**
+```cpp
+struct Transform2DComponent {
+    glm::vec2 translation{};      // Position offset
+    glm::vec2 scale{1.f, 1.f};    // Scale factor
+    float rotation;               // Rotation in radians
+    
+    glm::mat2 mat2() {            // Generate transformation matrix
+        const float s = glm::sin(rotation);
+        const float c = glm::cos(rotation);
+        glm::mat2 rotMatrix{{c, s}, {-s, c}};
+        glm::mat2 scaleMat{{scale.x, 0.0f}, {0.0f, scale.y}};
+        return rotMatrix * scaleMat;
+    }
+};
+```
+
+**Creation Pattern:**
+```cpp
+auto model = std::make_shared<Model>(device, vertices);
+
+auto triangle = GameObject::createGameObject();
+triangle.model = model;
+triangle.color = {0.1f, 0.8f, 0.1f};
+triangle.transform2D.translation = {0.2f, 0.0f};
+triangle.transform2D.scale = {2.0f, 0.5f};
+triangle.transform2D.rotation = glm::radians(90.0f);
+
+gameObjects.push_back(std::move(triangle));
+```
+
+**Rendering Integration:**
+```cpp
+for (auto& obj : gameObjects) {
+    // Update animation
+    obj.transform2D.rotation += 0.01f;
+    
+    // Build push constants from GameObject
+    SimplePushConstantData push{};
+    push.transform = obj.transform2D.mat2();
+    push.offset = obj.transform2D.translation;
+    push.color = obj.color;
+    
+    // Upload and render
+    vkCmdPushConstants(commandBuffer, ...);
+    obj.model->bind(commandBuffer);
+    obj.model->draw(commandBuffer);
+}
+```
+
+**Design Benefits:**
+- **Separation of concerns:** Model (geometry) vs GameObject (instance data)
+- **Memory efficiency:** Multiple objects share same Model
+- **Flexibility:** Easy to add/remove objects from scene
+- **Animation:** Transform changes per frame without touching vertex data
+- **Extensibility:** Foundation for entity-component system (ECS)
+
+**See:** [GAMEOBJECT.md](GAMEOBJECT.md) for complete GameObject documentation
+
+### 7. Push Constants
 
 **Purpose:** Fast CPU-to-GPU data transfer for per-draw-call parameters.
 
 **Key Responsibilities:**
 - Define shader interface for small, frequently-changing data
-- Enable dynamic positioning and coloring
+- Transfer GameObject transform and color to GPU
 - Support multiple draw calls with different parameters
 - Minimal overhead compared to uniform buffers
 
 **Data Structure:**
 ```cpp
 struct SimplePushConstantData {
-    glm::vec2 offset;        // 2D position offset
-    alignas(16) glm::vec3 color;  // RGB color (16-byte aligned!)
+    glm::mat2 transform{1.f};    // 2D rotation & scale matrix
+    glm::vec2 offset;            // 2D position offset
+    alignas(16) glm::vec3 color; // RGB color (16-byte aligned!)
 };
+```
+
+**Memory Layout:**
+```
+Offset  Size  Field
+0x00    16    mat2 transform
+0x10    8     vec2 offset
+0x18    8     [padding]
+0x20    12    vec3 color (aligned to 16)
+Total: 40 bytes
 ```
 
 **Pipeline Layout Configuration:**
@@ -281,57 +381,45 @@ pushConstantRange.offset = 0;
 pushConstantRange.size = sizeof(SimplePushConstantData);
 ```
 
-**Usage Pattern:**
+**GameObject to Push Constants:**
 ```cpp
-for (int i = 0; i < 4; i++) {
-    SimplePushConstantData push{};
-    push.offset = {0.0f, i * 0.25f};  // Stack vertically
-    push.color = {0.0f, 0.0f, 0.2f + 0.2f * i};  // Increasing blue
-    
-    vkCmdPushConstants(commandBuffer, pipelineLayout, 
-                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(SimplePushConstantData), &push);
-    model->draw(commandBuffer);  // Draw with different color/position
-}
+SimplePushConstantData push{};
+push.transform = obj.transform2D.mat2();  // Rotation & scale
+push.offset = obj.transform2D.translation; // Position
+push.color = obj.color;                    // Color
+
+vkCmdPushConstants(commandBuffer, pipelineLayout, 
+                   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                   0, sizeof(SimplePushConstantData), &push);
 ```
 
-**Design Decision: Push Constants vs. Vertex Attributes**
+**Shader Usage:**
+```glsl
+// Vertex shader
+layout(push_constant) uniform Push {
+  mat2 transform;
+  vec2 offset;
+  vec3 color;
+} push;
 
-Current approach uses push constants for color instead of per-vertex color interpolation:
+gl_Position = vec4(push.transform * position + push.offset, 0.0, 1.0);
+                   ^^^^^^^^^^^^^^^^ ^^^^^^^^   ^^^^^^^^^^^^
+                   Rotate & Scale   Vertex     Translation
 
-**Benefits:**
-- **Dynamic control:** Can change color per draw call without modifying vertex data
-- **Instancing ready:** Draw same geometry multiple times with different colors/positions
-- **Performance:** No need to update vertex buffers for color changes
-- **Flexibility:** Easy to animate (position offset changes per frame)
+// Fragment shader
+outColor = vec4(push.color, 1.0);
+```
 
-**Trade-offs:**
-- **Flat colors:** All vertices in a draw call get same color (no gradients)
-- **Size limit:** Push constants limited to 128 bytes minimum (plenty for current use)
+**Transformation Order:**
+1. Vertex position (local/model space)
+2. Apply transform matrix (rotation & scale)
+3. Apply offset (translation to world space)
+4. Result in clip space coordinates
 
 **Why `alignas(16)` for vec3?**
 - GLSL std140 layout requires vec3 to be 16-byte aligned
 - Without alignment, GPU reads wrong memory offsets
 - Results in incorrect colors or validation errors
-
-**Shader Side:**
-```glsl
-// Vertex shader
-layout(push_constant) uniform Push {
-  vec2 offset;
-  vec3 color;
-} push;
-
-gl_Position = vec4(position + push.offset, 0.0, 1.0);
-
-// Fragment shader
-layout(push_constant) uniform Push {
-  vec2 offset;
-  vec3 color;
-} push;
-
-outColor = vec4(push.color, 1.0);
-```
 
 **See:** [SHADER.md](SHADER.md) for complete shader implementation details
 
@@ -418,11 +506,14 @@ vkDeviceWaitIdle();                // Wait for GPU to finish
    ├→ vkCmdBeginRenderPass()
    ├→ vkCmdSetViewport() (dynamic state)
    ├→ vkCmdSetScissor() (dynamic state)
-   ├→ pipeline->bind()
-   ├→ model->bind()
-   ├→ For each object:
-   │  ├→ vkCmdPushConstants() (set position/color)
-   │  └→ model->draw()
+   ├→ renderGameObjects(commandBuffer)
+   │  ├→ pipeline->bind()
+   │  └→ For each GameObject:
+   │     ├→ Update transform (animation)
+   │     ├→ Build push constants from GameObject
+   │     ├→ vkCmdPushConstants() (transform, position, color)
+   │     ├→ model->bind()
+   │     └→ model->draw()
    ├→ vkCmdEndRenderPass()
    └→ vkEndCommandBuffer()
 

@@ -4,7 +4,7 @@
 #include "Pipeline.hpp"
 #include "Device.hpp"
 #include "SwapChain.hpp"
-#include "Model.hpp"
+#include "GameObject.hpp"
 
 //std
 #include <memory>
@@ -25,7 +25,7 @@ namespace engine {
     void run();
 
   private:
-    void loadModels();
+    void loadGameObjects();
     void createPipelineLayout();
     void createPipeline();
     void createCommandBuffers();
@@ -33,6 +33,7 @@ namespace engine {
     void drawFrame();
     void recreateSwapChain();
     void recordCommandBuffer(int imageIndex);
+    void renderGameObjects(VkCommandBuffer commandBuffer);
 
     Window window{WIDTH, HEIGHT, "Bismuth Engine"};
     Device device{window};
@@ -40,6 +41,6 @@ namespace engine {
     std::unique_ptr<Pipeline> pipeline;
     VkPipelineLayout pipelineLayout;
     std::vector<VkCommandBuffer> commandBuffers;
-    std::unique_ptr<Model> model;
+    std::vector<GameObject> gameObjects;
   };
 }

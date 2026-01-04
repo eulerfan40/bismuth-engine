@@ -60,6 +60,7 @@ layout(location = 0) in vec2 position;
 layout(location = 1) in vec3 color;
 
 layout(push_constant) uniform Push {
+  mat2 transform;
   vec2 offset;
   vec3 color;
 } push;
@@ -67,7 +68,7 @@ layout(push_constant) uniform Push {
 // Executed once per vertex we have
 void main () {
   //gl_Position is the output position in clip coordinates (x: -1 (left) - (right) 1, y: -1 (up) - (down) 1)
-  gl_Position = vec4(position + push.offset, 0.0, 1.0);
+  gl_Position = vec4(push.transform * position + push.offset, 0.0, 1.0);
 }
 ```
 
@@ -110,6 +111,7 @@ static std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescri
 
 ```glsl
 layout(push_constant) uniform Push {
+  mat2 transform;
   vec2 offset;
   vec3 color;
 } push;
@@ -117,28 +119,39 @@ layout(push_constant) uniform Push {
 
 **Purpose:** Fast, per-draw-call data from CPU to GPU.
 
-**Access:** `push.offset`, `push.color`
+**Access:** `push.transform`, `push.offset`, `push.color`
 
 **CPU Side Declaration:**
 
 ```cpp
 struct SimplePushConstantData {
+  glm::mat2 transform{1.f};     // Identity matrix by default
   glm::vec2 offset;
   alignas(16) glm::vec3 color;  // Alignment requirement!
 };
 ```
 
-**Why `alignas(16)`?**
+**Member Breakdown:**
+
+| Field | Type | Size | Purpose |
+|-------|------|------|---------|
+| `transform` | `mat2` | 16 bytes | 2D rotation and scale matrix |
+| `offset` | `vec2` | 8 bytes | Translation (position) |
+| `color` | `vec3` | 12 bytes (aligned to 16) | RGB color |
+
+**Why `alignas(16)` for vec3?**
 - GLSL std140 layout rules require vec3 to be aligned to 16 bytes
 - Without alignment: GPU reads wrong memory location
 - Causes visual glitches or validation errors
+
+**Total Size:** 40 bytes (well within 128-byte minimum limit)
 
 See [Push Constants](#push-constants) section for complete details.
 
 ### Output
 
 ```glsl
-gl_Position = vec4(position + push.offset, 0.0, 1.0);
+gl_Position = vec4(push.transform * position + push.offset, 0.0, 1.0);
 ```
 
 **`gl_Position`:** Built-in output variable (vec4)
@@ -152,27 +165,63 @@ gl_Position = vec4(position + push.offset, 0.0, 1.0);
 **Transformation Breakdown:**
 
 ```glsl
-vec4(position + push.offset, 0.0, 1.0)
-     ^^^^^^^^   ^^^^^^^^^^^^  ^^^  ^^^
-        |            |         |    |
-     Base 2D      Offset     Z=0  W=1
-   (from vertex) (animated) (flat) (ortho)
+vec4(push.transform * position + push.offset, 0.0, 1.0)
+     ^^^^^^^^^^^^^^   ^^^^^^^^   ^^^^^^^^^^^^  ^^^  ^^^
+           |              |            |        |    |
+      Transform        Base 2D     Translation Z=0  W=1
+   (rotate & scale)  (from vertex)  (position) (flat) (ortho)
+```
+
+**Transformation Order:**
+1. **Scale & Rotate:** `push.transform * position` applies 2×2 matrix
+2. **Translate:** `+ push.offset` moves to final position
+3. **Promote to 3D:** Add Z=0.0 and W=1.0 for clip space
+
+**Matrix Multiplication:**
+
+```glsl
+mat2 transform = mat2(
+    c*sx, s*sy,    // Column 0: [cos*scale.x, sin*scale.y]
+   -s*sx, c*sy     // Column 1: [-sin*scale.x, cos*scale.y]
+);
+
+vec2 transformed = transform * position;
+// transformed.x = transform[0][0]*position.x + transform[1][0]*position.y
+// transformed.y = transform[0][1]*position.x + transform[1][1]*position.y
 ```
 
 **Example:**
-```glsl
-position = vec2(0.0, -0.5)
-push.offset = vec2(0.2, 0.1)
 
-gl_Position = vec4(0.2, -0.4, 0.0, 1.0)
+```glsl
+// Input
+position = vec2(0.5, 0.0)  // Right-pointing vertex
+push.transform = mat2(0.0, 1.0, -1.0, 0.0)  // 90° rotation
+push.offset = vec2(0.2, 0.1)  // Translation
+
+// Step 1: Apply transform (rotation)
+transformed = mat2(0.0, 1.0, -1.0, 0.0) * vec2(0.5, 0.0)
+            = vec2(0.0, 0.5)  // Now pointing up
+
+// Step 2: Apply offset (translation)
+final = vec2(0.0, 0.5) + vec2(0.2, 0.1)
+      = vec2(0.2, 0.6)
+
+// Step 3: Promote to clip space
+gl_Position = vec4(0.2, 0.6, 0.0, 1.0)
 ```
+
+**Why This Order?**
+- Transform (scale/rotate) happens in local space (around origin)
+- Translation moves to world/screen position
+- Standard transformation hierarchy: Scale → Rotate → Translate
 
 ### Key Features
 
-1. **Dynamic Positioning:** `push.offset` allows moving geometry per draw call
-2. **2D Rendering:** Z is always 0.0 (flat plane)
-3. **No Transformation Matrix:** Direct clip space coordinates
+1. **2D Transformations:** `push.transform` applies rotation and scale per draw call
+2. **Dynamic Positioning:** `push.offset` moves geometry to final position
+3. **2D Rendering:** Z is always 0.0 (flat plane)
 4. **Per-Vertex Execution:** Runs independently for each vertex
+5. **Efficient Animation:** Change transform matrix without modifying vertex buffers
 
 ---
 
@@ -189,6 +238,7 @@ gl_Position = vec4(0.2, -0.4, 0.0, 1.0)
 layout (location = 0) out vec4 outColor;
 
 layout(push_constant) uniform Push {
+  mat2 transform;
   vec2 offset;
   vec3 color;
 } push;
@@ -202,6 +252,7 @@ void main() {
 
 ```glsl
 layout(push_constant) uniform Push {
+  mat2 transform;
   vec2 offset;
   vec3 color;
 } push;
@@ -211,7 +262,7 @@ layout(push_constant) uniform Push {
 
 **Access:** `push.color` - RGB color from CPU
 
-**Note:** `push.offset` is not used in fragment shader (only vertex shader needs position data).
+**Note:** `push.transform` and `push.offset` are not used in fragment shader (only vertex shader needs transformation data). However, the declaration must match exactly across all shader stages.
 
 ### Output
 
@@ -323,6 +374,7 @@ layout(push_constant) uniform Push {
 
 ```cpp
 struct SimplePushConstantData {
+  glm::mat2 transform{1.f};     // Identity matrix by default
   glm::vec2 offset;
   alignas(16) glm::vec3 color;  // CRITICAL: 16-byte alignment
 };
@@ -336,6 +388,9 @@ struct SimplePushConstantData {
 | `vec2` | 8 bytes | 8 bytes |
 | `vec3` | 12 bytes | **16 bytes** ⚠️ |
 | `vec4` | 16 bytes | 16 bytes |
+| `mat2` | 16 bytes | 8 bytes (vec2 columns) |
+| `mat3` | 36 bytes | 16 bytes (vec3 columns) |
+| `mat4` | 64 bytes | 16 bytes (vec4 columns) |
 
 **Why vec3 needs 16-byte alignment:**
 - GPU memory access is optimized for 16-byte chunks
@@ -345,11 +400,22 @@ struct SimplePushConstantData {
 **Example Memory Layout:**
 
 ```
-Without alignas(16):           With alignas(16):
-Offset  Data                   Offset  Data
-0x00    vec2 offset (8 bytes)  0x00    vec2 offset (8 bytes)
-0x08    vec3 color (12 bytes)  0x10    vec3 color (12 bytes)  ✓
-        ^ WRONG OFFSET!               ^ Correct 16-byte aligned
+Correct Layout (with alignas):
+Offset  Data
+0x00    mat2 transform (16 bytes) - 4 floats in column-major order
+0x10    vec2 offset (8 bytes)
+0x18    [padding] (8 bytes)
+0x20    vec3 color (12 bytes, aligned to 16)
+Total: 40 bytes
+```
+
+**Column-Major mat2:**
+```
+mat2(a, b, c, d) stored as:
+0x00: a (col0.x)
+0x04: b (col0.y)
+0x08: c (col1.x)
+0x0C: d (col1.y)
 ```
 
 ### Pipeline Layout Configuration

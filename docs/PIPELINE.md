@@ -270,6 +270,7 @@ pushConstantRange.size = sizeof(SimplePushConstantData);
 
 ```cpp
 struct SimplePushConstantData {
+  glm::mat2 transform{1.f};     // Identity matrix by default
   glm::vec2 offset;
   alignas(16) glm::vec3 color;
 };
@@ -278,29 +279,32 @@ struct SimplePushConstantData {
 **Critical:** Must match shader declaration exactly!
 
 **Alignment Requirements (std140):**
+- `mat2`: 16 bytes (two vec2 columns, 8-byte aligned)
 - `vec2`: 8-byte alignment
 - `vec3`: **16-byte alignment** (padded from 12 bytes)
 - `vec4`: 16-byte alignment
 
-**Without `alignas(16)`:**
+**Memory Layout:**
 ```
-Memory Layout (WRONG):
-Offset 0x00: vec2 offset (8 bytes)
-Offset 0x08: vec3 color  (12 bytes)  ← GPU reads at 0x10!
+Offset  Size  Field
+0x00    16    mat2 transform (4 floats in column-major order)
+0x10    8     vec2 offset
+0x18    8     [padding for alignment]
+0x20    12    vec3 color (aligned to 16-byte boundary)
+Total: 40 bytes
 ```
 
-**With `alignas(16)`:**
-```
-Memory Layout (CORRECT):
-Offset 0x00: vec2 offset (8 bytes)
-Offset 0x08: [padding] (8 bytes)
-Offset 0x10: vec3 color (12 bytes)  ← Aligned!
-```
+**Why This Layout?**
+- `mat2` naturally 16-byte aligned (4 floats)
+- `vec2` follows immediately (8-byte aligned)
+- `vec3` requires padding to reach 16-byte boundary
+- Total: 40 bytes (well under 128-byte minimum)
 
 ### Shader Side Declaration
 
 ```glsl
 layout(push_constant) uniform Push {
+  mat2 transform;
   vec2 offset;
   vec3 color;
 } push;
@@ -309,7 +313,9 @@ layout(push_constant) uniform Push {
 **Access:**
 ```glsl
 // Vertex shader
-gl_Position = vec4(position + push.offset, 0.0, 1.0);
+gl_Position = vec4(push.transform * position + push.offset, 0.0, 1.0);
+                   ^^^^^^^^^^^^^^^^ ^^^^^^^^   ^^^^^^^^^^^^
+                   Rotate & Scale   Vertex     Translation
 
 // Fragment shader
 outColor = vec4(push.color, 1.0);
@@ -320,7 +326,13 @@ outColor = vec4(push.color, 1.0);
 - Same types
 - Same order
 
-**See:** [SHADER.md](SHADER.md) for complete shader documentation
+**Transformation Flow:**
+1. Vertex position (local space)
+2. Apply `transform` matrix (rotation & scale)
+3. Apply `offset` vector (translation)
+4. Result in clip space coordinates
+
+**See:** [SHADER.md](SHADER.md) for complete shader documentation and transformation details
 
 ---
 

@@ -5,18 +5,20 @@
 // Expect depth buffer values to range from 0 to 1 as opposed to OpenGL standard which is -1 to 1
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 
 #include <stdexcept>
 #include <array>
 
 namespace engine {
   struct SimplePushConstantData {
+    glm::mat2 transform{1.f}; // Initialize to the identity matrix [ 1 0 ; 0 1 ]
     glm::vec2 offset;
     alignas(16) glm::vec3 color;
   };
 
   FirstApp::FirstApp() {
-    loadModels();
+    loadGameObjects();
     createPipelineLayout();
     recreateSwapChain();
     createCommandBuffers();
@@ -36,14 +38,22 @@ namespace engine {
     vkDeviceWaitIdle(device.device());
   }
 
-  void FirstApp::loadModels() {
+  void FirstApp::loadGameObjects() {
     std::vector<Model::Vertex> vertices{
       {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
       {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
       {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
     };
 
-    model = std::make_unique<Model>(device, vertices);
+    auto model = std::make_shared<Model>(device, vertices);
+    auto triangle = GameObject::createGameObject();
+    triangle.model = model;
+    triangle.color = {0.1f, 0.8f, 0.1f};
+    triangle.transform2D.translation.x = 0.2f;
+    triangle.transform2D.scale = { 2.0f, 0.5f };
+    triangle.transform2D.rotation = 0.25f * glm::two_pi<float>(); // 90 degree rotation
+
+    gameObjects.push_back(std::move(triangle));
   }
 
   void FirstApp::createPipelineLayout() {
@@ -124,9 +134,6 @@ namespace engine {
   }
 
   void FirstApp::recordCommandBuffer(int imageIndex) {
-    // Quick test of animation with push constants
-    static int frame = 0;
-    frame = (frame + 1) % 1000; // Animation will loop every thousand frames.
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -162,28 +169,36 @@ namespace engine {
     vkCmdSetViewport(commandBuffers[imageIndex], 0, 1, &viewport);
     vkCmdSetScissor(commandBuffers[imageIndex], 0, 1, &scissor);
 
-    pipeline->bind(commandBuffers[imageIndex]);
-    model->bind(commandBuffers[imageIndex]);
+    renderGameObjects(commandBuffers[imageIndex]);
 
-    // Draw four triangles, stacked vertically, with increasing levels of blue color, moving to the right.
-    for (int j = 0; j < 4; j++) {
+    vkCmdEndRenderPass(commandBuffers[imageIndex]);
+    if (vkEndCommandBuffer(commandBuffers[imageIndex]) != VK_SUCCESS) {
+      throw std::runtime_error("Failed to record command buffer!");
+    }
+  }
+
+  void FirstApp::renderGameObjects(VkCommandBuffer commandBuffer) {
+    pipeline->bind(commandBuffer);
+
+    for (auto& obj : gameObjects) {
+      // Continuously rotate the triangle in a full circle.
+      obj.transform2D.rotation = glm::mod(obj.transform2D.rotation + 0.01f, glm::two_pi<float>());
+
       SimplePushConstantData push{};
-      push.offset = {-0.05f + frame * 0.002f, -0.4f + j * 0.25f};
-      push.color = {0.0f, 0.0f, 0.2f + 0.2f * j};
+      push.offset = obj.transform2D.translation;
+      push.color = obj.color;
+      push.transform = obj.transform2D.mat2();
 
       vkCmdPushConstants(
-        commandBuffers[imageIndex],
+        commandBuffer,
         pipelineLayout,
         VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT,
         0,
         sizeof(SimplePushConstantData),
         &push);
-      model->draw(commandBuffers[imageIndex]);
-    }
 
-    vkCmdEndRenderPass(commandBuffers[imageIndex]);
-    if (vkEndCommandBuffer(commandBuffers[imageIndex]) != VK_SUCCESS) {
-      throw std::runtime_error("Failed to record command buffer!");
+      obj.model->bind(commandBuffer);
+      obj.model->draw(commandBuffer);
     }
   }
 

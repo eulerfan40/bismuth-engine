@@ -13,8 +13,10 @@ Bismuth Engine is a cross-platform 3D game engine written in C++ and Vulkan.
 - ✅ Window creation (GLFW)
 - ✅ Vulkan initialization (volk)
 - ✅ Graphics pipeline with shader support
-- ✅ Vertex buffer management
-- ✅ Render a triangle to the screen
+- ✅ Vertex buffer management with color attributes
+- ✅ Per-vertex color interpolation
+- ✅ SRGB color space for accurate color reproduction
+- ✅ Render a colored triangle with smooth gradients
 
 ## Building
 

@@ -273,9 +273,9 @@ void SwapChain::createSwapChain() {
 VkSurfaceFormatKHR SwapChain::chooseSwapSurfaceFormat(
     const std::vector<VkSurfaceFormatKHR> &availableFormats) {
     
-    // Look for SRGB color space with BGRA8 format
+    // Look for SRGB color space with BGRA8 SRGB format
     for (const auto &availableFormat : availableFormats) {
-        if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM &&
+        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
             availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
             return availableFormat;
         }
@@ -286,17 +286,27 @@ VkSurfaceFormatKHR SwapChain::chooseSwapSurfaceFormat(
 }
 ```
 
-**Why BGRA8 + SRGB?**
+**Why BGRA8_SRGB + SRGB Color Space?**
 
 | Component | Purpose |
 |-----------|---------|
-| `VK_FORMAT_B8G8R8A8_UNORM` | 8 bits per channel (RGBA), normalized |
-| `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR` | Standard RGB color space |
+| `VK_FORMAT_B8G8R8A8_SRGB` | 8 bits per channel (BGRA), with automatic sRGB gamma correction |
+| `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR` | Standard RGB color space for displays |
 
-**Color Space Importance:**
-- SRGB matches monitor gamma curve
-- Colors appear correct to human eye
-- Industry standard for displays
+**SRGB vs UNORM:**
+- `VK_FORMAT_B8G8R8A8_UNORM`: Linear color space, no gamma correction
+- `VK_FORMAT_B8G8R8A8_SRGB`: Applies gamma correction (2.2 curve) when writing to framebuffer
+
+**Why SRGB Format is Important:**
+- **Gamma Correction:** SRGB format automatically applies gamma correction during output
+- **Perceptual Uniformity:** Colors appear more natural and accurate to human perception
+- **Color Accuracy:** Ensures linear color values from shaders are correctly displayed
+- **Industry Standard:** Modern graphics applications use SRGB for proper color reproduction
+- **Shader Workflow:** Shaders compute in linear space (0.0-1.0), GPU converts to SRGB for display
+
+**Why BGRA Order?**
+- Many GPUs prefer BGRA format for historical reasons (faster on some hardware)
+- Most common surface format on desktop platforms
 
 #### Present Mode Selection
 
@@ -1067,5 +1077,6 @@ SwapChain::~SwapChain() {
 
 **Related Documentation:**
 - **[Pipeline Component](PIPELINE.md)** - Uses SwapChain's render pass
+- **[Model Component](MODEL.md)** - Color attributes displayed using SRGB framebuffer
 - **[Device Component](DEVICE.md)** - Provides Vulkan device and queues
-- **[Architecture Overview](ARCHITECTURE.md)** - Frame synchronization details
+- **[Architecture Overview](ARCHITECTURE.md)** - Frame synchronization and color interpolation details

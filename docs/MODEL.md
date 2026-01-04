@@ -53,13 +53,15 @@ The `Vertex` struct defines the layout of vertex data:
 ```cpp
 struct Vertex {
     glm::vec2 position;  // 2D position in clip space
+    glm::vec3 color;     // RGB color per vertex
 };
 ```
 
 **Current attributes:**
 - `position` (vec2): 2D coordinates for triangle rendering
+- `color` (vec3): RGB color values (0.0 to 1.0 per channel)
 
-**Future expansion:** Additional attributes like colors, normals, texture coordinates can be added as fields in this struct.
+**Future expansion:** Additional attributes like normals, texture coordinates, tangents can be added as fields in this struct.
 
 ---
 
@@ -165,26 +167,44 @@ std::vector<VkVertexInputBindingDescription> Model::Vertex::getBindingDescriptio
 
 ```cpp
 std::vector<VkVertexInputAttributeDescription> Model::Vertex::getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(1);
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(2);
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
-    attributeDescriptions[0].offset = 0;
+    attributeDescriptions[0].offset = offsetof(Vertex, position);
+    
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(Vertex, color);
     return attributeDescriptions;
 }
 ```
 
-**Fields:**
+**Attribute 0 (Position):**
 - `binding = 0`: References binding description [0]
 - `location = 0`: Corresponds to `layout(location = 0)` in vertex shader
 - `format = VK_FORMAT_R32G32_SFLOAT`: Two 32-bit floats (vec2)
-- `offset = 0`: Position is at byte 0 of the Vertex struct
+- `offset = offsetof(Vertex, position)`: Byte offset of position field
+
+**Attribute 1 (Color):**
+- `binding = 0`: References binding description [0]
+- `location = 1`: Corresponds to `layout(location = 1)` in vertex shader
+- `format = VK_FORMAT_R32G32B32_SFLOAT`: Three 32-bit floats (vec3)
+- `offset = offsetof(Vertex, color)`: Byte offset of color field
 
 **Purpose:** Maps struct fields to vertex shader inputs.
+
+**Why `offsetof()`?**
+Using `offsetof()` instead of hardcoded byte offsets ensures correctness even if:
+- Compiler adds padding between struct fields
+- Struct field order changes
+- New fields are added
 
 **Shader correspondence:**
 ```glsl
 layout(location = 0) in vec2 position;  // Matches location = 0, format = R32G32_SFLOAT
+layout(location = 1) in vec3 color;     // Matches location = 1, format = R32G32B32_SFLOAT
 ```
 
 ---
@@ -227,19 +247,22 @@ void Model::draw(VkCommandBuffer commandBuffer) {
 
 ## Usage Example
 
-### Loading a Triangle
+### Loading a Triangle with Colors
 
 ```cpp
 void FirstApp::loadModels() {
     std::vector<Model::Vertex> vertices {
-        {{0.0f, -0.5f}},   // Top vertex
-        {{0.5f, 0.5f}},    // Bottom-right vertex
-        {{-0.5f, 0.5f}}    // bottom-left vertex
+        {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},   // Top vertex (red)
+        {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},    // Bottom-right vertex (green)
+        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}    // Bottom-left vertex (blue)
     };
 
     model = std::make_unique<Model>(device, vertices);
 }
 ```
+
+**Color Interpolation:**
+The GPU automatically interpolates colors across the triangle surface. With red, green, and blue at the vertices, the center of the triangle will be a blend of all three colors (appearing grayish), and edges will smoothly transition between adjacent vertex colors.
 
 ### Rendering Loop
 
@@ -299,7 +322,7 @@ The binding and attribute descriptors are static methods because:
 
 **Triangle vertices moved from shader to CPU:**
 
-**Before:**
+**Before (Hardcoded in Shader):**
 ```glsl
 // simple_shader.vert
 vec2 positions[3] = vec2[](
@@ -310,13 +333,20 @@ vec2 positions[3] = vec2[](
 gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
 ```
 
-**After:**
+```glsl
+// simple_shader.frag
+void main() {
+    outColor = vec4(1.0, 1.0, 0.0, 1.0);  // Solid yellow
+}
+```
+
+**After (Vertex Buffers with Color Attributes):**
 ```cpp
 // FirstApp.cpp
 std::vector<Model::Vertex> vertices {
-    {{0.0f, -0.5f}},
-    {{0.5f, 0.5f}},
-    {{-0.5f, 0.5f}}
+    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},  // Position + Red
+    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},   // Position + Green
+    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}   // Position + Blue
 };
 model = std::make_unique<Model>(device, vertices);
 ```
@@ -324,13 +354,30 @@ model = std::make_unique<Model>(device, vertices);
 ```glsl
 // simple_shader.vert
 layout(location = 0) in vec2 position;
-gl_Position = vec4(position, 0.0, 1.0);
+layout(location = 1) in vec3 color;
+layout(location = 0) out vec3 fragColor;
+
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+    fragColor = color;  // Pass to fragment shader
+}
 ```
 
-**Why this change?**
-- **Flexibility:** Can load geometry from files, not hardcoded in shaders
+```glsl
+// simple_shader.frag
+layout(location = 0) in vec3 fragColor;
+layout(location = 0) out vec4 outColor;
+
+void main() {
+    outColor = vec4(fragColor, 1.0);  // Interpolated color
+}
+```
+
+**Why these changes?**
+- **Flexibility:** Can load geometry and colors from files, not hardcoded in shaders
 - **Scalability:** Different models can share the same shader
-- **Standard practice:** Most engines use vertex buffers, not shader arrays
+- **Standard practice:** Most engines use vertex buffers with attributes
+- **Visual richness:** Per-vertex colors enable smooth gradients via automatic interpolation
 
 ---
 
@@ -362,19 +409,30 @@ vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
 
 ### 1. Extended Vertex Attributes
 
+Currently implemented:
 ```cpp
 struct Vertex {
-    glm::vec3 position;    // 3D positions
-    glm::vec3 color;       // Per-vertex colors
-    glm::vec3 normal;      // Surface normals for lighting
-    glm::vec2 texCoord;    // Texture coordinates
+    glm::vec2 position;    // ✅ 2D positions
+    glm::vec3 color;       // ✅ Per-vertex colors (with interpolation)
 };
 ```
 
-**Requires updating:**
-- `getAttributeDescriptions()` to include new attributes
-- Vertex shader to accept new inputs
-- `format` and `offset` fields in attribute descriptions
+Future extensions:
+```cpp
+struct Vertex {
+    glm::vec3 position;    // Upgrade to 3D
+    glm::vec3 color;       // Already implemented
+    glm::vec3 normal;      // Surface normals for lighting
+    glm::vec2 texCoord;    // Texture coordinates
+    glm::vec3 tangent;     // For normal mapping
+};
+```
+
+**When adding new attributes:**
+- Update `getAttributeDescriptions()` with new location, format, and offset
+- Add corresponding `layout(location = N) in` declarations in vertex shader
+- Use `offsetof(Vertex, fieldName)` for correct byte offsets
+- Consider struct alignment and padding
 
 ### 2. Index Buffers
 
@@ -466,6 +524,15 @@ model->draw(commandBuffer);
 2. Pipeline vertex input doesn't match Model descriptors
 3. Shader `layout(location)` doesn't match attribute location
 4. Forgot to compile shaders after updating vertex shader
+5. Mismatch between number of attributes in `getAttributeDescriptions()` and shader inputs
+
+### Color Not Showing / Wrong Colors
+
+**Possible causes:**
+1. Color values outside valid range (should be 0.0 to 1.0)
+2. Fragment shader not using the interpolated color input
+3. Forgot to pass color from vertex shader to fragment shader (`out`/`in` variables)
+4. Swapchain format doesn't support color correctly (should be SRGB format)
 
 ---
 
@@ -484,8 +551,9 @@ model->draw(commandBuffer);
 ## Related Documentation
 
 - **[Device Component](DEVICE.md)** - Buffer creation and memory management
-- **[Pipeline Component](PIPELINE.md)** - How vertex input state is configured
-- **[Architecture Overview](ARCHITECTURE.md)** - How Model fits into the rendering loop
+- **[Pipeline Component](PIPELINE.md)** - How vertex input state is configured with color attributes
+- **[SwapChain Component](SWAPCHAIN.md)** - SRGB format for accurate color display
+- **[Architecture Overview](ARCHITECTURE.md)** - How Model fits into the rendering loop and color interpolation details
 
 ---
 

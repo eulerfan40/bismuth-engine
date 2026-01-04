@@ -205,7 +205,8 @@ Framebuffer Output
 **Vertex Structure:**
 ```cpp
 struct Vertex {
-    glm::vec2 position;  // 2D position (currently)
+    glm::vec2 position;  // 2D position
+    glm::vec3 color;     // RGB color per vertex
 };
 ```
 
@@ -217,7 +218,9 @@ struct Vertex {
 
 **Vertex Input Descriptors:**
 - Binding descriptions: How to read buffer (stride, input rate)
-- Attribute descriptions: How to interpret data (format, location)
+- Attribute descriptions: How to interpret data (format, location, offset)
+  - Location 0: `position` (vec2, R32G32_SFLOAT)
+  - Location 1: `color` (vec3, R32G32B32_SFLOAT)
 - Used by Pipeline during creation
 
 **Rendering Commands:**
@@ -236,14 +239,21 @@ gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
 
 Now, vertices are loaded from CPU and passed via vertex buffers:
 ```cpp
-std::vector<Model::Vertex> vertices {{{0.0f, -0.5f}}, {{0.5f, 0.5f}}, {{-0.5f, 0.5f}}};
+std::vector<Model::Vertex> vertices {
+    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},  // Red
+    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},   // Green
+    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}   // Blue
+};
 model = std::make_unique<Model>(device, vertices);
 ```
 
 **Why this change?**
-- **Flexibility:** Load geometry from files, not hardcoded
+- **Flexibility:** Load geometry and colors from files, not hardcoded
 - **Scalability:** Multiple models can share shaders
-- **Industry standard:** Proper 3D engines use vertex buffers
+- **Industry standard:** Proper 3D engines use vertex buffers with attributes
+
+**Color Interpolation:**
+Per-vertex colors are automatically interpolated across triangle faces by the GPU rasterizer. The vertex shader outputs colors, which are then smoothly blended between vertices during rasterization, and the fragment shader receives the interpolated color for each pixel. This creates smooth color gradients without additional computation.
 
 ---
 

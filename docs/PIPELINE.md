@@ -117,14 +117,19 @@ Framebuffer
 
 ```cpp
 struct PipelineConfigInfo {
-    VkViewport viewport;
-    VkRect2D scissor;
+    PipelineConfigInfo() = default;
+    PipelineConfigInfo(const PipelineConfigInfo&) = delete;
+    PipelineConfigInfo& operator=(const PipelineConfigInfo&) = delete;
+
+    VkPipelineViewportStateCreateInfo viewportInfo;
     VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo;
     VkPipelineRasterizationStateCreateInfo rasterizationInfo;
     VkPipelineMultisampleStateCreateInfo multisampleInfo;
     VkPipelineColorBlendAttachmentState colorBlendAttachment;
     VkPipelineColorBlendStateCreateInfo colorBlendInfo;
     VkPipelineDepthStencilStateCreateInfo depthStencilInfo;
+    std::vector<VkDynamicState> dynamicStateEnables;
+    VkPipelineDynamicStateCreateInfo dynamicStateInfo;
     VkPipelineLayout pipelineLayout = nullptr;
     VkRenderPass renderPass = nullptr;
     uint32_t subpass = 0;
@@ -146,7 +151,7 @@ public:
     void bind(VkCommandBuffer commandBuffer);
 
     // Get default configuration
-    static PipelineConfigInfo defaultPipelineConfigInfo(uint32_t width, uint32_t height);
+    static void defaultPipelineConfigInfo(PipelineConfigInfo& configInfo);
 
 private:
     static std::vector<char> readFile(const std::string &path);
@@ -512,32 +517,144 @@ With alpha blending:
 ### defaultPipelineConfigInfo()
 
 ```cpp
-static PipelineConfigInfo Pipeline::defaultPipelineConfigInfo(
-    uint32_t width, uint32_t height) {
-    
-    PipelineConfigInfo configInfo{};
-
+static void Pipeline::defaultPipelineConfigInfo(PipelineConfigInfo& configInfo) {
     // Configure all stages with sensible defaults
     // ... (see full implementation in source)
-
-    return configInfo;
 }
 ```
 
 **Purpose:**
 - Provides working configuration for basic rendering
-- Single triangle, no vertex buffers
+- Configures dynamic viewport and scissor for window resizing
 - No textures or complex features
 - Good starting point for customization
 
+**Signature Change:**
+- **Old:** Returns `PipelineConfigInfo` by value, required width/height parameters
+- **New:** Takes `PipelineConfigInfo&` by reference, no width/height needed
+- **Reason:** Viewport and scissor are now dynamic state, set at draw time
+
 **Usage:**
 ```cpp
-auto config = Pipeline::defaultPipelineConfigInfo(800, 600);
-config.renderPass = swapChain.getRenderPass();
-config.pipelineLayout = pipelineLayout;
+PipelineConfigInfo pipelineConfig{};
+Pipeline::defaultPipelineConfigInfo(pipelineConfig);
+pipelineConfig.renderPass = swapChain->getRenderPass();
+pipelineConfig.pipelineLayout = pipelineLayout;
 
-Pipeline pipeline(device, "shaders/vert.spv", "shaders/frag.spv", config);
+Pipeline pipeline(device, "shaders/vert.spv", "shaders/frag.spv", pipelineConfig);
 ```
+
+---
+
+## Dynamic State
+
+### What Is Dynamic State?
+
+Most pipeline state is **baked in** at creation time - changing it requires creating a new pipeline. However, certain states can be marked as **dynamic**, allowing them to be changed at draw time.
+
+**Static State (Default):**
+```cpp
+// Create pipeline with fixed viewport
+VkViewport viewport{0.0f, 0.0f, 800.0f, 600.0f, 0.0f, 1.0f};
+// Viewport is now fixed - can't change without new pipeline
+```
+
+**Dynamic State (Current Implementation):**
+```cpp
+// Create pipeline with dynamic viewport
+configInfo.dynamicStateEnables = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+// Viewport can be set per-frame in command buffer
+```
+
+### Why Use Dynamic State?
+
+**Window Resizing Support:**
+- Window dimensions can change at runtime
+- Without dynamic state: Must recreate pipeline for each resize
+- With dynamic state: Keep same pipeline, update viewport/scissor in command buffer
+
+**Performance:**
+- Pipeline creation is expensive (~milliseconds)
+- Setting dynamic state is cheap (~microseconds)
+- Essential for responsive window resizing
+
+### Dynamic State Configuration
+
+**In defaultPipelineConfigInfo():**
+
+```cpp
+// Enable viewport and scissor as dynamic state
+configInfo.dynamicStateEnables = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+configInfo.dynamicStateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+configInfo.dynamicStateInfo.pDynamicStates = configInfo.dynamicStateEnables.data();
+configInfo.dynamicStateInfo.dynamicStateCount = 
+    static_cast<uint32_t>(configInfo.dynamicStateEnables.size());
+configInfo.dynamicStateInfo.flags = 0;
+
+// Viewport state now references nullptr (set at draw time)
+configInfo.viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+configInfo.viewportInfo.viewportCount = 1;
+configInfo.viewportInfo.pViewports = nullptr;  // Dynamic!
+configInfo.viewportInfo.scissorCount = 1;
+configInfo.viewportInfo.pScissors = nullptr;   // Dynamic!
+```
+
+### Setting Dynamic State at Draw Time
+
+**In command buffer recording:**
+
+```cpp
+void recordCommandBuffer(int imageIndex) {
+    vkBeginCommandBuffer(commandBuffers[imageIndex], &beginInfo);
+    vkCmdBeginRenderPass(commandBuffers[imageIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    // Set viewport dynamically
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(swapChain->getSwapChainExtent().width);
+    viewport.height = static_cast<float>(swapChain->getSwapChainExtent().height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(commandBuffers[imageIndex], 0, 1, &viewport);
+
+    // Set scissor dynamically
+    VkRect2D scissor{{0, 0}, swapChain->getSwapChainExtent()};
+    vkCmdSetScissor(commandBuffers[imageIndex], 0, 1, &scissor);
+
+    // Now bind pipeline and draw
+    pipeline->bind(commandBuffers[imageIndex]);
+    model->bind(commandBuffers[imageIndex]);
+    model->draw(commandBuffers[imageIndex]);
+
+    vkCmdEndRenderPass(commandBuffers[imageIndex]);
+    vkEndCommandBuffer(commandBuffers[imageIndex]);
+}
+```
+
+**Key Points:**
+- Dynamic state must be set **before** draw commands
+- Must be set **after** binding render pass
+- Values can change every frame (e.g., after window resize)
+- Validation layers will error if dynamic state not set
+
+### Other Common Dynamic States
+
+While we currently only use viewport and scissor, Vulkan supports many dynamic states:
+
+| Dynamic State | Use Case |
+|---------------|----------|
+| `VK_DYNAMIC_STATE_VIEWPORT` | Window resizing, split-screen |
+| `VK_DYNAMIC_STATE_SCISSOR` | Window resizing, UI clipping |
+| `VK_DYNAMIC_STATE_LINE_WIDTH` | Debug rendering, wireframe |
+| `VK_DYNAMIC_STATE_BLEND_CONSTANTS` | Fade effects, UI transparency |
+| `VK_DYNAMIC_STATE_DEPTH_BIAS` | Shadow mapping |
+| `VK_DYNAMIC_STATE_STENCIL_REFERENCE` | Stencil masking |
+
+**Trade-off:**
+- More dynamic states = more flexibility
+- Fewer dynamic states = better driver optimization
+- Use dynamic state only when needed
 
 ---
 

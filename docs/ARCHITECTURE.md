@@ -330,19 +330,33 @@ vkDeviceWaitIdle();                // Wait for GPU to finish
 1. acquireNextImage(&imageIndex)
    ├→ vkWaitForFences(inFlightFences[currentFrame])  // Wait for frame
    └→ vkAcquireNextImageKHR(imageAvailableSemaphores[currentFrame])
-      └→ Returns imageIndex (0, 1, or 2)
+      ├→ Returns imageIndex (0, 1, or 2)
+      └→ Check for VK_ERROR_OUT_OF_DATE_KHR → recreateSwapChain()
 
-2. submitCommandBuffers(commandBuffer, imageIndex)
+2. recordCommandBuffer(imageIndex)
+   ├→ vkBeginCommandBuffer()
+   ├→ vkCmdBeginRenderPass()
+   ├→ vkCmdSetViewport() (dynamic state)
+   ├→ vkCmdSetScissor() (dynamic state)
+   ├→ pipeline->bind()
+   ├→ model->bind()
+   ├→ model->draw()
+   ├→ vkCmdEndRenderPass()
+   └→ vkEndCommandBuffer()
+
+3. submitCommandBuffers(commandBuffer, imageIndex)
    ├→ Wait on: imageAvailableSemaphores[currentFrame]
    ├→ Execute: commandBuffers[imageIndex]
    ├→ Signal: renderFinishedSemaphores[currentFrame]
    └→ vkQueueSubmit(inFlightFences[currentFrame])
 
-3. Present to screen
+4. Present to screen
    ├→ Wait on: renderFinishedSemaphores[currentFrame]
-   └→ vkQueuePresentKHR()
+   ├→ vkQueuePresentKHR()
+   └→ Check for VK_ERROR_OUT_OF_DATE_KHR / VK_SUBOPTIMAL_KHR / window resize
+      └→ If out of date → recreateSwapChain()
 
-4. Advance frame counter
+5. Advance frame counter
    └→ currentFrame = (currentFrame + 1) % 3
 ```
 
@@ -374,6 +388,101 @@ Frame 3:  CPU WAITS for Frame 0 fence → Reuse resources
 | Can be checked by CPU | Only GPU can wait |
 | Reset by CPU | Auto-reset |
 | Example: "Is this frame done?" | Example: "Is image ready?" |
+
+### Window Resizing and Swapchain Recreation
+
+**Dynamic Window Support:**
+
+The engine now supports runtime window resizing through a complete swapchain recreation mechanism.
+
+**Resize Detection Flow:**
+
+```
+User resizes window
+    ↓
+GLFW detects resize → calls frameBufferResizeCallback()
+    ↓
+Window::framebufferResized flag set to true
+    ↓
+drawFrame() checks:
+    - VK_ERROR_OUT_OF_DATE_KHR from acquireNextImage()
+    - VK_ERROR_OUT_OF_DATE_KHR or VK_SUBOPTIMAL_KHR from present
+    - window.wasWindowResized() flag
+    ↓
+recreateSwapChain() triggered
+```
+
+**Swapchain Recreation Process:**
+
+```cpp
+void recreateSwapChain() {
+    // 1. Get new window dimensions
+    auto extent = window.getExtent();
+    
+    // 2. Handle minimization (0×0 size)
+    while (extent.width == 0 || extent.height == 0) {
+        extent = window.getExtent();
+        glfwWaitEvents();  // Pause rendering
+    }
+    
+    // 3. Wait for GPU to finish current work
+    vkDeviceWaitIdle(device.device());
+    
+    // 4. Create new swapchain (passing old one for optimization)
+    if (swapChain == nullptr) {
+        swapChain = std::make_unique<SwapChain>(device, extent);
+    } else {
+        swapChain = std::make_unique<SwapChain>(device, extent, std::move(swapChain));
+        
+        // 5. Check if image count changed (rare)
+        if (swapChain->imageCount() != commandBuffers.size()) {
+            freeCommandBuffers();
+            createCommandBuffers();
+        }
+    }
+    
+    // 6. Recreate pipeline (depends on swapchain render pass)
+    createPipeline();
+}
+```
+
+**Key Design Decisions:**
+
+1. **SwapChain as unique_ptr:**
+   - Was: Direct member variable `SwapChain swapChain`
+   - Now: `std::unique_ptr<SwapChain> swapChain`
+   - Reason: Enables recreation without manually destroying old swapchain
+
+2. **Old Swapchain Parameter:**
+   - Passed to new SwapChain constructor
+   - Vulkan can optimize recreation by reusing resources
+   - Reduces visual artifacts during resize
+
+3. **Dynamic Viewport/Scissor:**
+   - Set per-frame in command buffer recording
+   - No pipeline recreation needed for viewport changes
+   - Significantly faster than recreating pipeline
+
+4. **Command Buffer Management:**
+   - Command buffers recorded every frame (not pre-recorded)
+   - Allows dynamic viewport/scissor updates
+   - Handles swapchain image count changes
+
+**Why vkDeviceWaitIdle()?**
+- Ensures GPU finished using old swapchain
+- Prevents validation errors about resources in use
+- Brief pause (~1-2ms) acceptable for resize event
+
+**Minimization Handling:**
+- Minimized windows report 0×0 extent
+- Cannot create 0×0 swapchain (Vulkan error)
+- Solution: Pause rendering with `glfwWaitEvents()` until restored
+
+**Performance Impact:**
+- Swapchain recreation: ~5-10ms
+- Pipeline recreation: ~2-5ms
+- Total resize cost: ~10-15ms
+- Infrequent operation, acceptable latency
 
 ---
 

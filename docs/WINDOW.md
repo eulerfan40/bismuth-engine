@@ -48,6 +48,8 @@ namespace engine {
 
     // Query methods
     bool shouldClose() { return glfwWindowShouldClose(window); }
+    bool wasWindowResized() { return framebufferResized; }
+    void resetWindowResizedFlag() { framebufferResized = false; }
     VkExtent2D getExtent() { 
       return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}; 
     }
@@ -56,10 +58,12 @@ namespace engine {
     void createWindowSurface(VkInstance instance, VkSurfaceKHR* surface);
 
   private:
+    static void frameBufferResizeCallback(GLFWwindow* window, int width, int height);
     void initWindow();
 
-    const int width;
-    const int height;
+    int width;
+    int height;
+    bool framebufferResized;
     std::string windowName;
     GLFWwindow *window;
   };
@@ -70,15 +74,17 @@ namespace engine {
 
 | Variable | Type | Purpose |
 |----------|------|---------|
-| `width` | `const int` | Window width in pixels (immutable) |
-| `height` | `const int` | Window height in pixels (immutable) |
+| `width` | `int` | Window width in pixels (updated on resize) |
+| `height` | `int` | Window height in pixels (updated on resize) |
+| `framebufferResized` | `bool` | Flag indicating if window was resized since last check |
 | `windowName` | `std::string` | Title displayed in window title bar |
 | `window` | `GLFWwindow*` | GLFW window handle (raw pointer managed by GLFW) |
 
-**Why const width/height?**
-- Window resizing not yet implemented
-- Immutability prevents accidental modification
-- Future: Remove const when implementing resize support
+**Window Resizing Support:**
+- Width and height are now mutable to support dynamic window resizing
+- `framebufferResized` flag is set by GLFW callback when window is resized
+- Application can query resize state with `wasWindowResized()` and reset with `resetWindowResizedFlag()`
+- Resizing triggers swapchain recreation to match new window dimensions
 
 **Why raw pointer for window?**
 - GLFW manages window lifecycle internally
@@ -117,10 +123,14 @@ void Window::initWindow() {
     
     // 3. Configure window hints
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
     // 4. Create the window
     window = glfwCreateWindow(width, height, windowName.c_str(), nullptr, nullptr);
+    
+    // 5. Set up window resize callback
+    glfwSetWindowUserPointer(window, this);
+    glfwSetWindowSizeCallback(window, frameBufferResizeCallback);
 }
 ```
 
@@ -201,7 +211,7 @@ glfwInit();
 
 ```cpp
 glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 ```
 
 **Window Hints:**
@@ -231,14 +241,51 @@ glfwCreateWindow(...);  // No graphics context created
 // We'll create Vulkan surface manually
 ```
 
-#### GLFW_RESIZABLE = GLFW_FALSE
+#### GLFW_RESIZABLE = GLFW_TRUE
 
-**Purpose:** Disable window resizing.
+**Purpose:** Enable window resizing.
 
-**Why Disabled?**
-- Window resizing requires recreating the swapchain
-- Swapchain recreation not yet implemented (v0.1.0)
-- Fixed size simplifies initial development
+**How It Works:**
+- Users can resize the window by dragging edges/corners
+- GLFW triggers a callback when the window size changes
+- The application handles swapchain recreation to match new dimensions
+- Essential for responsive desktop applications
+
+### Stage 5: Resize Callback Setup
+
+```cpp
+glfwSetWindowUserPointer(window, this);
+glfwSetWindowSizeCallback(window, frameBufferResizeCallback);
+```
+
+**Window User Pointer:**
+- `glfwSetWindowUserPointer()` stores a pointer to our Window object inside the GLFW window
+- This allows the static callback function to access the Window instance
+- Necessary because GLFW callbacks are C-style functions (no `this` pointer)
+
+**Resize Callback Registration:**
+- `glfwSetWindowSizeCallback()` registers a function to be called when window is resized
+- Callback signature: `void callback(GLFWwindow* window, int width, int height)`
+- Must be a static function or free function (GLFW is C-based)
+
+**The Callback Implementation:**
+
+```cpp
+void Window::frameBufferResizeCallback(GLFWwindow* window, int width, int height) {
+    auto pWindow = reinterpret_cast<Window*>(glfwGetWindowUserPointer(window));
+    pWindow->framebufferResized = true;
+    pWindow->width = width;
+    pWindow->height = height;
+}
+```
+
+**Callback Flow:**
+1. User resizes window → GLFW detects size change
+2. GLFW calls `frameBufferResizeCallback()` with new dimensions
+3. Retrieve Window object pointer using `glfwGetWindowUserPointer()`
+4. Update width/height to new values
+5. Set `framebufferResized` flag to notify application
+6. Application queries flag with `wasWindowResized()` and recreates swapchain
 
 ### Stage 4: Window Creation
 

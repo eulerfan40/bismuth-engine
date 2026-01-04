@@ -100,19 +100,6 @@ namespace engine {
     vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
     vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
 
-    // -------------------- VIEWPORT STATE --------------------
-    // This struct connects the viewport and scissor to the pipeline
-    VkPipelineViewportStateCreateInfo viewportInfo{};
-    viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    // Number of viewports used by the pipeline
-    viewportInfo.viewportCount = 1;
-    // Pointer to the viewport description
-    viewportInfo.pViewports = &configInfo.viewport;
-    // Number of scissor rectangles used by the pipeline
-    viewportInfo.scissorCount = 1;
-    // Pointer to the scissor rectangle description
-    viewportInfo.pScissors = &configInfo.scissor;
-
     // -------------------- GRAPHICS PIPELINE CREATE INFO --------------------
     // This struct ties together all pipeline stages into a single object
     VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -124,13 +111,12 @@ namespace engine {
     // Fixed-function pipeline stages
     pipelineInfo.pVertexInputState = &vertexInputInfo;
     pipelineInfo.pInputAssemblyState = &configInfo.inputAssemblyInfo;
-    pipelineInfo.pViewportState = &viewportInfo;
+    pipelineInfo.pViewportState = &configInfo.viewportInfo;
     pipelineInfo.pRasterizationState = &configInfo.rasterizationInfo;
     pipelineInfo.pMultisampleState = &configInfo.multisampleInfo;
     pipelineInfo.pColorBlendState = &configInfo.colorBlendInfo;
     pipelineInfo.pDepthStencilState = &configInfo.depthStencilInfo;
-    // No dynamic state is used (all state is baked into the pipeline)
-    pipelineInfo.pDynamicState = nullptr;
+    pipelineInfo.pDynamicState = &configInfo.dynamicStateInfo;
 
     // Pipeline layout defines descriptor sets and push constants
     pipelineInfo.layout = configInfo.pipelineLayout;
@@ -166,9 +152,7 @@ namespace engine {
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
   }
 
-  PipelineConfigInfo Pipeline::defaultPipelineConfigInfo(uint32_t width, uint32_t height) {
-    PipelineConfigInfo configInfo{};
-
+  void Pipeline::defaultPipelineConfigInfo(PipelineConfigInfo &configInfo) {
     // -------------------- INPUT ASSEMBLY STATE --------------------
     // This struct describes how Vulkan should assemble vertices into primitives
     configInfo.inputAssemblyInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -181,28 +165,6 @@ namespace engine {
     // This is mainly useful for triangle strips or line strips
     // Since we are using a triangle list, this is not needed
     configInfo.inputAssemblyInfo.primitiveRestartEnable = VK_FALSE;
-
-    // -------------------- VIEWPORT --------------------
-    // The viewport defines the area of the framebuffer that the final image will be rendered to
-    // X and Y specify the top-left corner of the viewport in screen space
-    configInfo.viewport.x = 0.0f;
-    configInfo.viewport.y = 0.0f;
-    // Width and height define the size of the viewport
-    // Typically matches the swapchain extent (window size)
-    configInfo.viewport.width = static_cast<float>(width);
-    configInfo.viewport.height = static_cast<float>(height);
-    // minDepth and maxDepth define the depth range used after projection
-    // Depth values from the vertex shader are mapped into this range
-    // 0.0 = near plane, 1.0 = far plane
-    configInfo.viewport.minDepth = 0.0f;
-    configInfo.viewport.maxDepth = 1.0f;
-
-    // -------------------- SCISSOR RECTANGLE --------------------
-    // Any pixels outside of the scissor rectangle will be cut off. screenspace 0-width/height, top right to bottom left
-    // Offset defines the top-left corner of the scissor rectangle
-    configInfo.scissor.offset = {0, 0};
-    // Extent defines the width and height of the scissor rectangle
-    configInfo.scissor.extent = {width, height};
 
     // -------------------- RASTERIZATION STATE --------------------
     // The rasterization stage takes the primitives (triangles) produced by the input assembly stage and converts them
@@ -315,6 +277,20 @@ namespace engine {
     configInfo.depthStencilInfo.front = {};
     configInfo.depthStencilInfo.back = {};
 
-    return configInfo;
+    configInfo.dynamicStateEnables = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    configInfo.dynamicStateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    configInfo.dynamicStateInfo.pDynamicStates = configInfo.dynamicStateEnables.data();
+    configInfo.dynamicStateInfo.dynamicStateCount = static_cast<uint32_t>(configInfo.dynamicStateEnables.size());
+    configInfo.dynamicStateInfo.flags = 0;
+
+    // -------------------- VIEWPORT STATE --------------------
+    // This struct connects the viewport and scissor to the pipeline
+    configInfo.viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    // Number of viewports used by the pipeline
+    configInfo.viewportInfo.viewportCount = 1;
+    configInfo.viewportInfo.pViewports = nullptr;
+    // Number of scissor rectangles used by the pipeline
+    configInfo.viewportInfo.scissorCount = 1;
+    configInfo.viewportInfo.pScissors = nullptr;
   }
 }

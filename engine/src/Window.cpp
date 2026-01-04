@@ -20,9 +20,11 @@ namespace engine {
 
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // Do not create an OpenGL context
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // Window resizing is handled later
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
     window = glfwCreateWindow(width, height, windowName.c_str(), nullptr, nullptr);
+    glfwSetWindowUserPointer(window, this);
+    glfwSetWindowSizeCallback(window, frameBufferResizeCallback);
   }
 
   void Window::createWindowSurface(VkInstance instance, VkSurfaceKHR *surface) {
@@ -30,4 +32,12 @@ namespace engine {
       throw std::runtime_error("Failed to create window surface!");
     }
   }
+
+  void Window::frameBufferResizeCallback(GLFWwindow* window, int width, int height) {
+    auto pWindow = reinterpret_cast<Window*>(glfwGetWindowUserPointer(window));
+    pWindow->framebufferResized = true;
+    pWindow->width = width;
+    pWindow->height = height;
+  }
+
 }

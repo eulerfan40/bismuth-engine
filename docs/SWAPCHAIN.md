@@ -60,11 +60,12 @@ public:
     static constexpr int MAX_FRAMES_IN_FLIGHT = 3;
 
     SwapChain(Device &deviceRef, VkExtent2D windowExtent);
+    SwapChain(Device &deviceRef, VkExtent2D windowExtent, std::shared_ptr<SwapChain> previous);
     ~SwapChain();
 
     // Non-copyable
     SwapChain(const SwapChain &) = delete;
-    void operator=(const SwapChain &) = delete;
+    SwapChain &operator=(const SwapChain &) = delete;
 
     // Accessors
     VkFramebuffer getFrameBuffer(int index);
@@ -97,8 +98,12 @@ private:
     VkPresentModeKHR chooseSwapPresentMode(...);
     VkExtent2D chooseSwapExtent(...);
 
+    // Initialization helper
+    void init();
+
     // Vulkan objects
     VkSwapchainKHR swapChain;
+    std::shared_ptr<SwapChain> oldSwapChain;
     std::vector<VkImage> swapChainImages;
     std::vector<VkImageView> swapChainImageViews;
     VkFormat swapChainImageFormat;
@@ -122,6 +127,78 @@ private:
     VkExtent2D windowExtent;
 };
 ```
+
+---
+
+## Constructors
+
+### Primary Constructor
+
+```cpp
+SwapChain(Device &deviceRef, VkExtent2D windowExtent);
+```
+
+**Purpose:** Create a new swapchain for initial application startup.
+
+**Parameters:**
+- `deviceRef` - Reference to Device for Vulkan operations
+- `windowExtent` - Initial window dimensions (width, height)
+
+**Usage:**
+```cpp
+SwapChain swapChain(device, window.getExtent());
+```
+
+### Recreation Constructor
+
+```cpp
+SwapChain(Device &deviceRef, VkExtent2D windowExtent, std::shared_ptr<SwapChain> previous);
+```
+
+**Purpose:** Create a new swapchain while reusing resources from an old one.
+
+**Parameters:**
+- `deviceRef` - Reference to Device for Vulkan operations
+- `windowExtent` - New window dimensions (may differ from old)
+- `previous` - Shared pointer to the old swapchain being replaced
+
+**Why Pass Old Swapchain?**
+
+When recreating a swapchain (e.g., after window resize), Vulkan can optimize the process if you provide the old swapchain:
+
+1. **Resource Reuse:** Vulkan may reuse memory allocations from the old swapchain
+2. **Smoother Transition:** Reduces visual artifacts during recreation
+3. **Required by Spec:** `VkSwapchainCreateInfoKHR::oldSwapchain` field enables this optimization
+
+**Implementation Details:**
+
+```cpp
+SwapChain::SwapChain(Device &deviceRef, VkExtent2D extent, std::shared_ptr<SwapChain> previous)
+    : device{deviceRef}, windowExtent{extent}, oldSwapChain{previous} {
+    init();
+    
+    // Cleanup old swap chain since it's no longer needed
+    oldSwapChain = nullptr;
+}
+```
+
+**Flow:**
+1. Store reference to old swapchain in `oldSwapChain` member
+2. Call `init()` to create new swapchain (passes `oldSwapChain->swapChain` to Vulkan)
+3. Set `oldSwapChain = nullptr` to trigger cleanup of old resources
+4. Old swapchain destructor runs, freeing Vulkan objects
+
+**Usage Example:**
+
+```cpp
+// Initial creation
+auto swapChain = std::make_unique<SwapChain>(device, extent);
+
+// Window resized - recreate swapchain
+swapChain = std::make_unique<SwapChain>(device, newExtent, std::move(swapChain));
+```
+
+The `std::move()` transfers ownership of the old swapchain to the new constructor, allowing proper cleanup after recreation completes.
 
 ---
 
@@ -944,17 +1021,80 @@ static constexpr int MAX_FRAMES_IN_FLIGHT = 3;  // Must equal image count
 **Error:**
 ```
 vkAcquireNextImageKHR returned VK_ERROR_OUT_OF_DATE_KHR
+vkQueuePresentKHR returned VK_ERROR_OUT_OF_DATE_KHR
 ```
 
-**Cause:** Window resized or minimized
+**Cause:** Window resized or surface properties changed
 
-**Solution (not yet implemented):**
+**What VK_ERROR_OUT_OF_DATE_KHR Means:**
+- The swapchain no longer matches the surface (window) properties
+- Most commonly triggered by window resize
+- Can also occur with display orientation changes or monitor switches
+- The swapchain must be recreated before continuing
+
+**Solution (implemented):**
+
+The application now handles swapchain recreation automatically:
+
 ```cpp
+// In drawFrame() - after acquiring image
+auto result = swapChain->acquireNextImage(&imageIndex);
+
 if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-    recreateSwapChain();  // Future feature
+    recreateSwapChain();
+    return;
+}
+
+// In drawFrame() - after presenting
+result = swapChain->submitCommandBuffers(&commandBuffers[imageIndex], &imageIndex);
+if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || window.wasWindowResized()) {
+    window.resetWindowResizedFlag();
+    recreateSwapChain();
     return;
 }
 ```
+
+**Recreation Flow:**
+
+```cpp
+void recreateSwapChain() {
+    auto extent = window.getExtent();
+    
+    // Handle window minimization (extent = 0x0)
+    while (extent.width == 0 || extent.height == 0) {
+        extent = window.getExtent();
+        glfwWaitEvents();  // Pause until window restored
+    }
+
+    vkDeviceWaitIdle(device.device());  // Wait for GPU to finish
+
+    if (swapChain == nullptr) {
+        // First-time creation
+        swapChain = std::make_unique<SwapChain>(device, extent);
+    } else {
+        // Recreate with old swapchain
+        swapChain = std::make_unique<SwapChain>(device, extent, std::move(swapChain));
+        
+        // Check if image count changed (rare but possible)
+        if (swapChain->imageCount() != commandBuffers.size()) {
+            freeCommandBuffers();
+            createCommandBuffers();
+        }
+    }
+    
+    createPipeline();  // Pipeline depends on swapchain dimensions
+}
+```
+
+**Why Wait for Zero Extent?**
+- Minimized windows report 0×0 size
+- Can't create swapchain with zero dimensions
+- Must pause rendering until window restored
+
+**VK_SUBOPTIMAL_KHR Handling:**
+- Swapchain still works but is suboptimal
+- Window was resized but swapchain still functions
+- Recreate immediately for best visual quality
 
 ### Issue 3: Validation Errors on Exit
 

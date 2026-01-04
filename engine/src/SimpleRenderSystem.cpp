@@ -9,11 +9,11 @@
 
 #include <stdexcept>
 #include <array>
+#include <iostream>
 
 namespace engine {
   struct SimplePushConstantData {
-    glm::mat2 transform{1.f}; // Initialize to the identity matrix [ 1 0 ; 0 1 ]
-    glm::vec2 offset;
+    glm::mat4 transform{1.f};
     alignas(16) glm::vec3 color;
   };
 
@@ -62,13 +62,16 @@ namespace engine {
     pipeline->bind(commandBuffer);
 
     for (auto &obj: gameObjects) {
-      // Continuously rotate the triangle in a full circle.
-      obj.transform2D.rotation = glm::mod(obj.transform2D.rotation + 0.01f, glm::two_pi<float>());
+      // Continuously rotate the cube along the y axis and x axis.
+      obj.transform.rotation.y = glm::mod(obj.transform.rotation.y + 0.01f, glm::two_pi<float>());
+      obj.transform.rotation.x = glm::mod(obj.transform.rotation.x + 0.005f, glm::two_pi<float>());
 
       SimplePushConstantData push{};
-      push.offset = obj.transform2D.translation;
       push.color = obj.color;
-      push.transform = obj.transform2D.mat2();
+      push.transform = obj.transform.mat4();
+
+      glm::vec4 testVertex = push.transform * glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+      std::cout << "Corner vertex Z after transform: " << testVertex.z << std::endl;
 
       vkCmdPushConstants(
         commandBuffer,

@@ -15,7 +15,7 @@ namespace engine {
   class Model {
   public:
     struct Vertex {
-      glm::vec2 position;
+      glm::vec3 position;
 
       glm::vec3 color;
 
@@ -24,7 +24,7 @@ namespace engine {
       static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions();
     };
 
-    Model(Device& device, const std::vector<Vertex>& vertices);
+    Model(Device &device, const std::vector<Vertex> &vertices);
 
     ~Model();
 
@@ -37,7 +37,7 @@ namespace engine {
     void draw(VkCommandBuffer commandBuffer);
 
   private:
-    void createVertexBuffers(const std::vector<Vertex>& vertices);
+    void createVertexBuffers(const std::vector<Vertex> &vertices);
 
     Device &device;
     VkBuffer vertexBuffer;

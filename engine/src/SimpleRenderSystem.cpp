@@ -58,7 +58,7 @@ namespace engine {
       pipelineConfig);
   }
 
-  void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, std::vector<GameObject>& gameObjects) {
+  void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, std::vector<GameObject> &gameObjects) {
     pipeline->bind(commandBuffer);
 
     for (auto &obj: gameObjects) {
@@ -69,9 +69,6 @@ namespace engine {
       SimplePushConstantData push{};
       push.color = obj.color;
       push.transform = obj.transform.mat4();
-
-      glm::vec4 testVertex = push.transform * glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
-      std::cout << "Corner vertex Z after transform: " << testVertex.z << std::endl;
 
       vkCmdPushConstants(
         commandBuffer,

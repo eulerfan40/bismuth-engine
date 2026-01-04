@@ -13,6 +13,7 @@ Complete technical documentation for the Graphics Pipeline system.
 - [Overview](#overview)
 - [Graphics Pipeline Explained](#graphics-pipeline-explained)
 - [Class Interface](#class-interface)
+- [Pipeline Layout](#pipeline-layout)
 - [Shader Management](#shader-management)
 - [Pipeline Configuration](#pipeline-configuration)
 - [Pipeline Stages](#pipeline-stages)
@@ -166,6 +167,160 @@ private:
     VkShaderModule fragShaderModule;
 };
 ```
+
+---
+
+## Pipeline Layout
+
+### What Is a Pipeline Layout?
+
+A **pipeline layout** describes the interface between your application and shaders:
+
+```
+CPU Side                Pipeline Layout               GPU Side
+--------                ---------------               --------
+Push Constants    →     VkPipelineLayout        →     push constants
+Descriptor Sets   →         (interface)         →     uniform buffers, textures
+```
+
+**Purpose:**
+- Defines what data shaders can access
+- Specifies push constant ranges
+- Declares descriptor set layouts (for uniforms, textures, etc.)
+- Must be created before pipeline
+
+### Pipeline Layout Configuration
+
+**In FirstApp::createPipelineLayout():**
+
+```cpp
+void FirstApp::createPipelineLayout() {
+    // Define push constant range
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(SimplePushConstantData);
+
+    // Create pipeline layout
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 0;
+    pipelineLayoutInfo.pSetLayouts = nullptr;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+    if (vkCreatePipelineLayout(device.device(), &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create pipeline layout!");
+    }
+}
+```
+
+### Push Constant Range
+
+```cpp
+VkPushConstantRange pushConstantRange{};
+pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+pushConstantRange.offset = 0;
+pushConstantRange.size = sizeof(SimplePushConstantData);
+```
+
+**`stageFlags`:** Which shader stages can access push constants
+
+| Flag | Shader Stage |
+|------|--------------|
+| `VK_SHADER_STAGE_VERTEX_BIT` | Vertex shader |
+| `VK_SHADER_STAGE_FRAGMENT_BIT` | Fragment shader |
+| `VK_SHADER_STAGE_COMPUTE_BIT` | Compute shader |
+| `VK_SHADER_STAGE_ALL_GRAPHICS` | All graphics stages |
+
+**Why Both Vertex and Fragment?**
+- Vertex shader uses `push.offset` for positioning
+- Fragment shader uses `push.color` for coloring
+- Same data visible to both stages
+
+**`offset`:** Starting byte in push constant block
+- 0 for first/only range
+- Can partition push constant memory into multiple ranges
+
+**`size`:** Total bytes for this range
+- Must be ≤ 128 bytes (minimum guaranteed by Vulkan)
+- Some GPUs support more (query `maxPushConstantsSize`)
+
+### Push Constants vs Descriptor Sets
+
+| Feature | Push Constants | Descriptor Sets |
+|---------|---------------|-----------------|
+| Size | ≤128 bytes | Unlimited |
+| Speed | Fastest | Fast |
+| Update Frequency | Per draw call | Per frame typical |
+| Use Case | Small, changing data | Textures, large buffers |
+| Setup Complexity | Simple | Complex |
+
+**Current Implementation:**
+- Using push constants only
+- `setLayoutCount = 0` - no descriptor sets yet
+- Sufficient for simple rendering
+
+**Future:**
+- Add descriptor sets for textures
+- Add uniform buffers for camera matrices
+- Combine both methods
+
+### CPU Side Data Structure
+
+```cpp
+struct SimplePushConstantData {
+  glm::vec2 offset;
+  alignas(16) glm::vec3 color;
+};
+```
+
+**Critical:** Must match shader declaration exactly!
+
+**Alignment Requirements (std140):**
+- `vec2`: 8-byte alignment
+- `vec3`: **16-byte alignment** (padded from 12 bytes)
+- `vec4`: 16-byte alignment
+
+**Without `alignas(16)`:**
+```
+Memory Layout (WRONG):
+Offset 0x00: vec2 offset (8 bytes)
+Offset 0x08: vec3 color  (12 bytes)  ← GPU reads at 0x10!
+```
+
+**With `alignas(16)`:**
+```
+Memory Layout (CORRECT):
+Offset 0x00: vec2 offset (8 bytes)
+Offset 0x08: [padding] (8 bytes)
+Offset 0x10: vec3 color (12 bytes)  ← Aligned!
+```
+
+### Shader Side Declaration
+
+```glsl
+layout(push_constant) uniform Push {
+  vec2 offset;
+  vec3 color;
+} push;
+```
+
+**Access:**
+```glsl
+// Vertex shader
+gl_Position = vec4(position + push.offset, 0.0, 1.0);
+
+// Fragment shader
+outColor = vec4(push.color, 1.0);
+```
+
+**Must be identical in all shaders:**
+- Same member names
+- Same types
+- Same order
+
+**See:** [SHADER.md](SHADER.md) for complete shader documentation
 
 ---
 

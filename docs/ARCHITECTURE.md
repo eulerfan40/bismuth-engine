@@ -255,6 +255,86 @@ model = std::make_unique<Model>(device, vertices);
 **Color Interpolation:**
 Per-vertex colors are automatically interpolated across triangle faces by the GPU rasterizer. The vertex shader outputs colors, which are then smoothly blended between vertices during rasterization, and the fragment shader receives the interpolated color for each pixel. This creates smooth color gradients without additional computation.
 
+### 6. Push Constants
+
+**Purpose:** Fast CPU-to-GPU data transfer for per-draw-call parameters.
+
+**Key Responsibilities:**
+- Define shader interface for small, frequently-changing data
+- Enable dynamic positioning and coloring
+- Support multiple draw calls with different parameters
+- Minimal overhead compared to uniform buffers
+
+**Data Structure:**
+```cpp
+struct SimplePushConstantData {
+    glm::vec2 offset;        // 2D position offset
+    alignas(16) glm::vec3 color;  // RGB color (16-byte aligned!)
+};
+```
+
+**Pipeline Layout Configuration:**
+```cpp
+VkPushConstantRange pushConstantRange{};
+pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+pushConstantRange.offset = 0;
+pushConstantRange.size = sizeof(SimplePushConstantData);
+```
+
+**Usage Pattern:**
+```cpp
+for (int i = 0; i < 4; i++) {
+    SimplePushConstantData push{};
+    push.offset = {0.0f, i * 0.25f};  // Stack vertically
+    push.color = {0.0f, 0.0f, 0.2f + 0.2f * i};  // Increasing blue
+    
+    vkCmdPushConstants(commandBuffer, pipelineLayout, 
+                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0, sizeof(SimplePushConstantData), &push);
+    model->draw(commandBuffer);  // Draw with different color/position
+}
+```
+
+**Design Decision: Push Constants vs. Vertex Attributes**
+
+Current approach uses push constants for color instead of per-vertex color interpolation:
+
+**Benefits:**
+- **Dynamic control:** Can change color per draw call without modifying vertex data
+- **Instancing ready:** Draw same geometry multiple times with different colors/positions
+- **Performance:** No need to update vertex buffers for color changes
+- **Flexibility:** Easy to animate (position offset changes per frame)
+
+**Trade-offs:**
+- **Flat colors:** All vertices in a draw call get same color (no gradients)
+- **Size limit:** Push constants limited to 128 bytes minimum (plenty for current use)
+
+**Why `alignas(16)` for vec3?**
+- GLSL std140 layout requires vec3 to be 16-byte aligned
+- Without alignment, GPU reads wrong memory offsets
+- Results in incorrect colors or validation errors
+
+**Shader Side:**
+```glsl
+// Vertex shader
+layout(push_constant) uniform Push {
+  vec2 offset;
+  vec3 color;
+} push;
+
+gl_Position = vec4(position + push.offset, 0.0, 1.0);
+
+// Fragment shader
+layout(push_constant) uniform Push {
+  vec2 offset;
+  vec3 color;
+} push;
+
+outColor = vec4(push.color, 1.0);
+```
+
+**See:** [SHADER.md](SHADER.md) for complete shader implementation details
+
 ---
 
 ## Initialization Flow
@@ -340,7 +420,9 @@ vkDeviceWaitIdle();                // Wait for GPU to finish
    ├→ vkCmdSetScissor() (dynamic state)
    ├→ pipeline->bind()
    ├→ model->bind()
-   ├→ model->draw()
+   ├→ For each object:
+   │  ├→ vkCmdPushConstants() (set position/color)
+   │  └→ model->draw()
    ├→ vkCmdEndRenderPass()
    └→ vkEndCommandBuffer()
 

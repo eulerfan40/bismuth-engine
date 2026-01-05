@@ -58,6 +58,9 @@ The Bismuth Engine is a custom game engine built from scratch using modern C++20
 | **SwapChain** | Framebuffers, render passes, frame synchronization | Device |
 | **Pipeline** | Shader loading, graphics pipeline configuration | Device, Model |
 | **Model** | Vertex data management, buffer creation, draw commands | Device |
+| **Camera** | View and projection transformations | GLM |
+| **GameObject** | Entity representation with transform component | GLM |
+| **KeyboardMovementController** | Keyboard-based camera/object control | Window (GLFW), GameObject |
 
 ---
 
@@ -244,12 +247,35 @@ private:
 ```cpp
 Renderer renderer{window, device};
 
+// Setup camera and controller
+Camera camera{};
+auto viewerObject = GameObject::createGameObject();
+KeyboardMovementController cameraController{};
+
+auto currentTime = std::chrono::high_resolution_clock::now();
+
 while (!window.shouldClose()) {
     glfwPollEvents();
     
+    // Calculate frame time for frame-rate independent movement
+    auto newTime = std::chrono::high_resolution_clock::now();
+    float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(
+        newTime - currentTime
+    ).count();
+    currentTime = newTime;
+    
+    // Update camera position/rotation based on keyboard input
+    cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
+    camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rotation);
+    
+    // Update camera projection
+    float aspect = renderer.getAspectRatio();
+    camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+    
     if (auto commandBuffer = renderer.beginFrame()) {
         renderer.beginSwapChainRenderPass(commandBuffer);
-        // Render here
+        // Render with camera matrices
+        simpleRenderSystem.renderGameObjects(commandBuffer, gameObjects, camera);
         renderer.endSwapChainRenderPass(commandBuffer);
         renderer.endFrame();
     }
@@ -671,6 +697,83 @@ Screen Space (pixels)
 - **Performance optimization:** Pre-compute projection-view matrix once per frame
 
 **See:** [CAMERA.md](CAMERA.md) for complete Camera documentation
+
+### 8. Interactive Camera Control
+
+**Purpose:** Enable user-controlled camera movement through keyboard input for first-person navigation.
+
+**Key Components:**
+- **KeyboardMovementController:** Translates keyboard input into GameObject transformations
+- **Viewer GameObject:** Represents the camera's position and orientation in the scene
+- **Delta Time:** Ensures frame-rate independent movement
+
+**Control Scheme:**
+```
+Movement:               Look:
+W - Forward            ↑ - Look Up
+S - Backward           ↓ - Look Down
+A - Strafe Left        ← - Look Left
+D - Strafe Right       → - Look Right
+E - Move Up
+Q - Move Down
+```
+
+**Implementation Pattern:**
+```cpp
+// Create viewer GameObject to track camera position/rotation
+auto viewerObject = GameObject::createGameObject();
+KeyboardMovementController cameraController{};
+
+// Configure speed (optional)
+cameraController.moveSpeed = 3.0f;  // units per second
+cameraController.lookSpeed = 1.5f;  // radians per second
+
+// In game loop:
+// 1. Calculate delta time
+auto newTime = std::chrono::high_resolution_clock::now();
+float frameTime = std::chrono::duration<float>(newTime - currentTime).count();
+currentTime = newTime;
+
+// 2. Update viewer based on keyboard input
+cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
+
+// 3. Apply viewer transform to camera
+camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rotation);
+```
+
+**Design Decisions:**
+
+1. **Indirect Control via GameObject:** Camera doesn't directly process input. Instead:
+   - Controller modifies a GameObject's transform
+   - Camera reads the GameObject's transform
+   - Separation allows reusing controller for player objects, AI, replays, etc.
+
+2. **Frame-Rate Independence:** All movement scales by delta time (dt):
+   ```cpp
+   translation += moveSpeed * dt * direction;
+   rotation += lookSpeed * dt * rotateInput;
+   ```
+   Result: Same movement speed at 30 FPS or 240 FPS.
+
+3. **Rotation Clamping:** Pitch limited to ±85° to prevent gimbal lock:
+   ```cpp
+   rotation.x = glm::clamp(rotation.x, -1.5f, 1.5f);
+   ```
+
+4. **Local-Space Movement:** Forward/backward/strafe relative to camera's yaw:
+   ```cpp
+   float yaw = rotation.y;
+   glm::vec3 forwardDir{sin(yaw), 0.0f, cos(yaw)};
+   glm::vec3 rightDir{forwardDir.z, 0.0f, -forwardDir.x};
+   ```
+
+**Benefits:**
+- **Intuitive FPS controls** - Industry-standard WASD + arrow keys
+- **Frame-rate independent** - Smooth movement regardless of FPS
+- **Customizable** - Adjust speeds and key mappings per use case
+- **Reusable** - Control any GameObject, not just cameras
+
+**See:** [KEYBOARDMOVEMENTCONTROLLER.md](KEYBOARDMOVEMENTCONTROLLER.md) for complete controller documentation
 
 ### 9. Push Constants
 
@@ -1160,3 +1263,6 @@ Window& operator=(const Window&) = delete; // No copy assignment
 - **[SwapChain Component](SWAPCHAIN.md)** - Frame management and synchronization
 - **[Pipeline Component](PIPELINE.md)** - Graphics pipeline configuration
 - **[Model Component](MODEL.md)** - Vertex data and buffer management
+- **[Camera Component](CAMERA.md)** - Projection matrices and view transformations
+- **[GameObject Component](GAMEOBJECT.md)** - Entity system with transform components
+- **[KeyboardMovementController Component](KEYBOARDMOVEMENTCONTROLLER.md)** - First-person keyboard camera controls

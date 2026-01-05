@@ -53,6 +53,7 @@ namespace engine {
     VkExtent2D getExtent() { 
       return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}; 
     }
+    GLFWwindow* getGLFWwindow() const { return window; }
 
     // Vulkan integration
     void createWindowSurface(VkInstance instance, VkSurfaceKHR* surface);
@@ -80,11 +81,43 @@ namespace engine {
 | `windowName` | `std::string` | Title displayed in window title bar |
 | `window` | `GLFWwindow*` | GLFW window handle (raw pointer managed by GLFW) |
 
+### Public Methods
+
+| Method | Return Type | Purpose |
+|--------|-------------|---------|
+| `shouldClose()` | `bool` | Returns true if window close requested (X button, Alt+F4, etc.) |
+| `wasWindowResized()` | `bool` | Returns true if window was resized since last reset |
+| `resetWindowResizedFlag()` | `void` | Clears the resize flag after handling resize |
+| `getExtent()` | `VkExtent2D` | Returns current window dimensions as Vulkan extent |
+| `getGLFWwindow()` | `GLFWwindow*` | Returns raw GLFW window handle for direct access |
+| `createWindowSurface()` | `void` | Creates Vulkan surface for rendering to window |
+
 **Window Resizing Support:**
 - Width and height are now mutable to support dynamic window resizing
 - `framebufferResized` flag is set by GLFW callback when window is resized
 - Application can query resize state with `wasWindowResized()` and reset with `resetWindowResizedFlag()`
 - Resizing triggers swapchain recreation to match new window dimensions
+
+**Direct GLFW Access:**
+- `getGLFWwindow()` provides access to underlying GLFW window handle
+- Required for input handling (`glfwGetKey()`, `glfwGetMouseButton()`, etc.)
+- Used by `KeyboardMovementController` to poll keyboard state
+- Enables integration with GLFW-based input systems
+
+**Usage Example:**
+```cpp
+// In game loop - checking for keyboard input
+GLFWwindow* windowHandle = window.getGLFWwindow();
+
+// Poll key states
+if (glfwGetKey(windowHandle, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+    glfwSetWindowShouldClose(windowHandle, GLFW_TRUE);
+}
+
+// Used by KeyboardMovementController
+KeyboardMovementController controller{};
+controller.moveInPlaneXZ(window.getGLFWwindow(), deltaTime, viewerObject);
+```
 
 **Why raw pointer for window?**
 - GLFW manages window lifecycle internally

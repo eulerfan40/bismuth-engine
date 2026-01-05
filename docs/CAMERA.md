@@ -949,11 +949,6 @@ void SimpleRenderSystem::renderGameObjects(
     auto projectionView = camera.getProjection() * camera.getView();
 
     for (auto &obj : gameObjects) {
-        obj.transform.rotation.y = glm::mod(
-            obj.transform.rotation.y + 0.01f, 
-            glm::two_pi<float>()
-        );
-
         SimplePushConstantData push{};
         push.color = obj.color;
         push.transform = projectionView * obj.transform.mat4();
@@ -970,6 +965,93 @@ void SimpleRenderSystem::renderGameObjects(
     }
 }
 ```
+
+### Example 5: Interactive First-Person Camera
+
+**Complete implementation with keyboard controls for WASD movement and arrow key look:**
+
+```cpp
+#include "KeyboardMovementController.hpp"
+#include <chrono>
+
+void FirstApp::run() {
+    SimpleRenderSystem simpleRenderSystem{device, renderer.getSwapChainRenderPass()};
+    Camera camera{};
+    
+    // Create viewer GameObject to track camera position and rotation
+    auto viewerObject = GameObject::createGameObject();
+    viewerObject.transform.translation = {0.0f, 0.0f, -2.5f};  // Starting position
+    
+    // Create camera controller with default WASD + arrow key controls
+    KeyboardMovementController cameraController{};
+    cameraController.moveSpeed = 3.0f;   // 3 units per second
+    cameraController.lookSpeed = 1.5f;   // 1.5 radians per second
+    
+    // Time tracking for frame-rate independent movement
+    auto currentTime = std::chrono::high_resolution_clock::now();
+
+    while (!window.shouldClose()) {
+        glfwPollEvents();
+        
+        // Calculate delta time (time since last frame)
+        auto newTime = std::chrono::high_resolution_clock::now();
+        float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(
+            newTime - currentTime
+        ).count();
+        currentTime = newTime;
+        
+        // Update viewer position and rotation based on keyboard input
+        cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
+        
+        // Apply viewer transform to camera view
+        camera.setViewYXZ(
+            viewerObject.transform.translation,  // Camera position
+            viewerObject.transform.rotation      // Camera orientation (yaw, pitch, roll)
+        );
+        
+        // Update camera projection (handles window resize)
+        float aspect = renderer.getAspectRatio();
+        camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+
+        if (auto commandBuffer = renderer.beginFrame()) {
+            renderer.beginSwapChainRenderPass(commandBuffer);
+            simpleRenderSystem.renderGameObjects(commandBuffer, gameObjects, camera);
+            renderer.endSwapChainRenderPass(commandBuffer);
+            renderer.endFrame();
+        }
+    }
+}
+```
+
+**Controls:**
+- **W/S** - Move forward/backward in the direction you're looking
+- **A/D** - Strafe left/right perpendicular to view direction
+- **E/Q** - Move up/down in world space
+- **Arrow Keys** - Rotate camera (pitch and yaw)
+
+**Key Design Points:**
+
+1. **Indirect Control Pattern:** The camera doesn't directly handle input. Instead:
+   - `KeyboardMovementController` modifies a GameObject's transform
+   - Camera reads from that GameObject via `setViewYXZ()`
+   - This separation enables reusing the controller for player objects, NPCs, replay systems, etc.
+
+2. **Frame-Rate Independence:** Movement speed is consistent regardless of FPS:
+   ```cpp
+   // Without delta time: moves different distances per frame depending on FPS
+   position += direction * speed;  // ❌ FPS-dependent
+   
+   // With delta time: consistent movement speed
+   position += direction * speed * deltaTime;  // ✅ FPS-independent
+   ```
+
+3. **setViewYXZ() for Interactive Control:** When handling user input, `setViewYXZ()` is preferred over `setViewTarget()` because:
+   - Direct control over rotation angles (pitch/yaw)
+   - Rotation clamping prevents camera flipping
+   - Predictable behavior with keyboard/mouse input
+   - Standard for FPS-style cameras
+
+**See:** [KEYBOARDMOVEMENTCONTROLLER.md](KEYBOARDMOVEMENTCONTROLLER.md) for detailed controller documentation and customization options.
 
 ---
 

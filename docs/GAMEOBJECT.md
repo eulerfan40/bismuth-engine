@@ -648,8 +648,88 @@ square.model = squareModel;
 square.transform.translation = {0.5f, 0.0f};
 
 gameObjects.push_back(std::move(triangle));
-gameObjects.push_back(std::move(square));
 ```
+
+### Example 5: Camera Viewer GameObject
+
+**GameObjects can represent non-rendered entities like camera positions:**
+
+```cpp
+#include "KeyboardMovementController.hpp"
+
+void FirstApp::run() {
+    Camera camera{};
+    
+    // Create a GameObject to represent the camera/viewer position and orientation
+    // This GameObject has no model - it's just a transform that drives the camera
+    auto viewerObject = GameObject::createGameObject();
+    viewerObject.transform.translation = {0.0f, 0.0f, -2.5f};  // Initial camera position
+    viewerObject.transform.rotation = {0.0f, 0.0f, 0.0f};      // Initial camera rotation
+    
+    // Controller modifies the viewer GameObject's transform
+    KeyboardMovementController cameraController{};
+    cameraController.moveSpeed = 3.0f;
+    cameraController.lookSpeed = 1.5f;
+    
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    
+    while (!window.shouldClose()) {
+        glfwPollEvents();
+        
+        // Calculate delta time
+        auto newTime = std::chrono::high_resolution_clock::now();
+        float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(
+            newTime - currentTime
+        ).count();
+        currentTime = newTime;
+        
+        // Update viewer GameObject based on keyboard input
+        cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
+        
+        // Camera reads viewer GameObject's transform
+        camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rotation);
+        
+        // Set projection and render...
+        float aspect = renderer.getAspectRatio();
+        camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+        
+        // Render scene from camera's perspective
+        if (auto commandBuffer = renderer.beginFrame()) {
+            renderer.beginSwapChainRenderPass(commandBuffer);
+            simpleRenderSystem.renderGameObjects(commandBuffer, gameObjects, camera);
+            renderer.endSwapChainRenderPass(commandBuffer);
+            renderer.endFrame();
+        }
+    }
+}
+```
+
+**Key Points:**
+
+1. **GameObject as Data Container:** The viewer GameObject has no `model` - it's purely a transform container.
+   - `viewerObject.transform.translation` → Camera position
+   - `viewerObject.transform.rotation` → Camera orientation (pitch, yaw, roll)
+
+2. **Separation of Concerns:**
+   - `KeyboardMovementController` modifies GameObject transforms
+   - `Camera` reads GameObject transforms
+   - Neither component needs to know about the other
+
+3. **Reusability:** The same GameObject/transform system used for rendered objects also works for:
+   - Camera/viewer positions
+   - Invisible target points
+   - Waypoints and markers
+   - Collision volumes
+   - AI navigation nodes
+
+4. **Transform Component Consistency:** All systems use the same `TransformComponent` structure:
+   ```cpp
+   viewerObject.transform.translation  // vec3 position
+   viewerObject.transform.rotation     // vec3 Euler angles (yaw, pitch, roll)
+   viewerObject.transform.scale        // vec3 scale (unused for camera)
+   ```
+
+**See:** [KEYBOARDMOVEMENTCONTROLLER.md](KEYBOARDMOVEMENTCONTROLLER.md) for camera control details
 
 ---
 

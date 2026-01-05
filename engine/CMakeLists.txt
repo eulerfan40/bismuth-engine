@@ -73,6 +73,8 @@ add_executable(bismuth_engine
         src/SimpleRenderSystem.cpp
         src/Camera.cpp
         src/Camera.hpp
+        src/KeyboardMovementController.cpp
+        src/KeyboardMovementController.hpp
 )
 
 # Set compiler-specific warning flags

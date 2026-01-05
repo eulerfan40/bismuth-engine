@@ -564,13 +564,14 @@ std::vector<Model::Vertex> vertices{
 
 ### 8. Camera System
 
-**Purpose:** Projection matrix management for 3D rendering.
+**Purpose:** Projection and view matrix management for 3D rendering.
 
 **Key Responsibilities:**
 - Generate orthographic or perspective projection matrices
+- Generate view matrices for camera position and orientation
 - Handle aspect ratio corrections for window dimensions
 - Define view frustum (near/far clipping planes)
-- Convert world coordinates to clip space
+- Convert world coordinates to camera space and then to clip space
 
 **Projection Types:**
 
@@ -594,36 +595,80 @@ camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
 - Distant objects appear smaller
 - Field of view controls "zoom level"
 
+**View Transformations:**
+
+The camera also supports positioning and orienting the camera in 3D space through view transformations:
+
+**1. Look at Target:**
+```cpp
+camera.setViewTarget(
+    glm::vec3{-1.0f, -2.0f, 2.0f},  // Camera position
+    glm::vec3{0.0f, 0.0f, 2.5f},    // Look at this point
+    glm::vec3{0.0f, -1.0f, 0.0f}    // Up direction (Vulkan Y-down)
+);
+```
+- Camera positioned at specified point, looking at target
+- Perfect for orbit cameras and object following
+
+**2. Look in Direction:**
+```cpp
+camera.setViewDirection(
+    glm::vec3{0.0f, 0.0f, -3.0f},   // Camera position
+    glm::vec3{0.0f, 0.0f, 1.0f},    // Look direction (forward)
+    glm::vec3{0.0f, -1.0f, 0.0f}    // Up direction
+);
+```
+- Camera positioned with explicit look direction
+- Useful for free-flying cameras
+
+**3. Euler Angle Rotation:**
+```cpp
+camera.setViewYXZ(
+    glm::vec3{0.0f, 0.0f, -3.0f},   // Camera position
+    glm::vec3{0.0f, 0.0f, 0.0f}     // Rotation (pitch, yaw, roll)
+);
+```
+- Camera controlled by rotation angles
+- Perfect for FPS-style mouse look
+
 **Integration with Rendering:**
 ```cpp
 // In FirstApp::run()
 Camera camera{};
 float aspect = renderer.getAspectRatio();
 camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+camera.setViewTarget(glm::vec3{-1.0f, -2.0f, 2.0f}, glm::vec3{0.0f, 0.0f, 2.5f});
 
 // Pass camera to render system
 simpleRenderSystem.renderGameObjects(commandBuffer, gameObjects, camera);
 
-// In render system - combine projection with model transform
-push.transform = camera.getProjection() * obj.transform.mat4();
+// In render system - combine projection, view, and model transforms
+auto projectionView = camera.getProjection() * camera.getView();  // Once per frame
+push.transform = projectionView * obj.transform.mat4();            // Per object
 ```
 
 **Transformation Pipeline:**
 ```
 Vertex (local space)
     ↓ [Model Matrix - GameObject transform]
-World Space
-    ↓ [Projection Matrix - Camera]
-Clip Space
+World Space (scene coordinates)
+    ↓ [View Matrix - Camera position/orientation]
+Camera Space (relative to camera)
+    ↓ [Projection Matrix - Camera frustum]
+Clip Space (homogeneous coordinates)
     ↓ [Perspective Division - GPU automatic]
-Screen Space
+NDC (Normalized Device Coordinates)
+    ↓ [Viewport Transform - GPU automatic]
+Screen Space (pixels)
 ```
 
 **Design Benefits:**
 - **Natural coordinates:** Use world units instead of normalized clip space
 - **Realistic rendering:** Perspective makes distant objects smaller
-- **Flexible viewing:** Easy to switch projection types
+- **Flexible viewing:** Easy to switch projection types and camera positions
 - **Aspect ratio handling:** Prevents distortion on non-square screens
+- **Camera movement:** Position and orient camera freely in 3D space
+- **Performance optimization:** Pre-compute projection-view matrix once per frame
 
 **See:** [CAMERA.md](CAMERA.md) for complete Camera documentation
 
@@ -663,8 +708,12 @@ pushConstantRange.size = sizeof(SimplePushConstantData);
 
 **GameObject to Push Constants:**
 ```cpp
+// Optimization: Compute projection-view once per frame
+auto projectionView = camera.getProjection() * camera.getView();
+
+// Per object: Combine with model transform
 SimplePushConstantData push{};
-push.transform = camera.getProjection() * obj.transform.mat4();  // Projection * model
+push.transform = projectionView * obj.transform.mat4();  // (Projection * View) * Model
 push.color = obj.color;  // Color (currently unused - vertex colors used instead)
 
 vkCmdPushConstants(commandBuffer, pipelineLayout, 
@@ -690,9 +739,11 @@ outColor = vec4(push.color, 1.0);
 
 **Transformation Order:**
 1. Vertex position (local/model space)
-2. Apply transform matrix (rotation & scale)
-3. Apply offset (translation to world space)
-4. Result in clip space coordinates
+2. Apply model matrix (scale, rotation, translation to world space)
+3. Apply view matrix (transform relative to camera position/orientation)
+4. Apply projection matrix (perspective or orthographic projection)
+5. Result in clip space coordinates (homogeneous coords with w component)
+6. GPU automatically performs perspective division (x/w, y/w, z/w)
 
 **Why `alignas(16)` for vec3?**
 - GLSL std140 layout requires vec3 to be 16-byte aligned

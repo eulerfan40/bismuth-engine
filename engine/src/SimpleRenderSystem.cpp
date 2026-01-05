@@ -63,6 +63,8 @@ namespace engine {
                                              const Camera &camera) {
     pipeline->bind(commandBuffer);
 
+    auto projectionView = camera.getProjection() * camera.getView();
+
     for (auto &obj: gameObjects) {
       // Continuously rotate the cube along the y axis and x axis.
       obj.transform.rotation.y = glm::mod(obj.transform.rotation.y + 0.01f, glm::two_pi<float>());
@@ -70,7 +72,7 @@ namespace engine {
 
       SimplePushConstantData push{};
       push.color = obj.color;
-      push.transform = camera.getProjection() * obj.transform.mat4();
+      push.transform = projectionView * obj.transform.mat4();
 
       vkCmdPushConstants(
         commandBuffer,

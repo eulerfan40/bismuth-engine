@@ -3,8 +3,8 @@
 Complete technical documentation for the Camera component.
 
 **Files:** `engine/src/Camera.hpp`, `engine/src/Camera.cpp`  
-**Purpose:** Projection matrix management for 3D rendering  
-**Pattern:** Encapsulation of camera projection mathematics
+**Purpose:** Projection and view matrix management for 3D rendering  
+**Pattern:** Encapsulation of camera projection and view transformation mathematics
 
 ---
 
@@ -14,6 +14,7 @@ Complete technical documentation for the Camera component.
 - [Class Interface](#class-interface)
 - [Orthographic Projection](#orthographic-projection)
 - [Perspective Projection](#perspective-projection)
+- [View Transformations](#view-transformations)
 - [Projection Mathematics](#projection-mathematics)
 - [Usage Examples](#usage-examples)
 - [Common Issues](#common-issues)
@@ -40,6 +41,7 @@ Screen Space (pixels)
 
 **Responsibilities:**
 - **Projection Matrix Generation:** Create orthographic or perspective projection matrices
+- **View Matrix Generation:** Position and orient the camera in world space
 - **Aspect Ratio Handling:** Adapt to different window dimensions
 - **View Frustum Definition:** Define visible volume of the scene
 - **Depth Range Mapping:** Map 3D depth to Vulkan's [0, 1] range
@@ -94,10 +96,16 @@ namespace engine {
 
     void setPerspectiveProjection(float fovy, float aspect, float near, float far);
 
+    void setViewDirection(glm::vec3 position, glm::vec3 direction, glm::vec3 up = glm::vec3{0.0f, -1.0f, 0.0f});
+    void setViewTarget(glm::vec3 position, glm::vec3 target, glm::vec3 up = glm::vec3{0.0f, -1.0f, 0.0f});
+    void setViewYXZ(glm::vec3 position, glm::vec3 rotation);
+
     const glm::mat4 &getProjection() const { return projectionMatrix; };
+    const glm::mat4 &getView() const { return viewMatrix; };
 
   private:
     glm::mat4 projectionMatrix{1.0f};
+    glm::mat4 viewMatrix{1.0f};
   };
 }
 ```
@@ -108,7 +116,11 @@ namespace engine {
 |--------|---------|------------------|
 | `setOrthographicProjection()` | Parallel projection (no perspective) | 2D games, UI, CAD applications |
 | `setPerspectiveProjection()` | Realistic 3D projection | 3D games, simulations, visualizations |
-| `getProjection()` | Retrieve projection matrix | Multiply with model transforms |
+| `setViewDirection()` | Set camera position and look direction | Free-flying camera, spacecraft |
+| `setViewTarget()` | Set camera to look at specific point | Following objects, orbit cameras |
+| `setViewYXZ()` | Set camera using Euler angles | FPS camera, rotation-based movement |
+| `getProjection()` | Retrieve projection matrix | Multiply with view and model transforms |
+| `getView()` | Retrieve view matrix | Multiply with model transforms |
 
 ---
 
@@ -451,6 +463,314 @@ camera.setPerspectiveProjection(glm::radians(35.0f), aspect, 0.1f, 50.0f);
 
 ---
 
+## View Transformations
+
+### Overview
+
+The **view matrix** transforms world-space coordinates into camera-space (view-space) coordinates. It represents the inverse of the camera's position and orientation in the world.
+
+**Transformation Flow:**
+```
+World Space (objects in scene)
+    ↓ [View Matrix]
+Camera Space (relative to camera)
+    ↓ [Projection Matrix]
+Clip Space
+```
+
+**Key Concept:** The view matrix moves the world relative to the camera, creating the illusion that the camera is moving through the scene.
+
+### Method 1: setViewDirection
+
+```cpp
+void setViewDirection(glm::vec3 position, 
+                     glm::vec3 direction, 
+                     glm::vec3 up = glm::vec3{0.0f, -1.0f, 0.0f});
+```
+
+**Purpose:** Set camera position and the direction it's looking.
+
+**Parameters:**
+
+| Parameter | Type | Description | Typical Values |
+|-----------|------|-------------|----------------|
+| `position` | `glm::vec3` | Camera position in world space | `{0.0f, 0.0f, -3.0f}` |
+| `direction` | `glm::vec3` | Direction vector (normalized automatically) | `{0.0f, 0.0f, 1.0f}` (forward) |
+| `up` | `glm::vec3` | Up vector (defaults to Y-down) | `{0.0f, -1.0f, 0.0f}` |
+
+**Important:** The `direction` parameter is the **look direction**, not the look-at target point.
+
+**Usage Example:**
+
+```cpp
+Camera camera;
+
+// Camera at origin, looking in positive Z direction
+camera.setViewDirection(
+    glm::vec3{0.0f, 0.0f, 0.0f},    // Position: at origin
+    glm::vec3{0.0f, 0.0f, 1.0f},    // Direction: forward (+Z)
+    glm::vec3{0.0f, -1.0f, 0.0f}    // Up: Y-down (Vulkan convention)
+);
+
+// Camera behind origin, looking forward
+camera.setViewDirection(
+    glm::vec3{0.0f, 0.0f, -3.0f},   // Position: 3 units back
+    glm::vec3{0.0f, 0.0f, 1.0f},    // Direction: forward
+    glm::vec3{0.0f, -1.0f, 0.0f}    // Up: Y-down
+);
+```
+
+**Use Cases:**
+- **Free-flying camera:** Direction computed from player input
+- **Spacecraft simulation:** Forward direction changes with rotation
+- **First-person camera:** Direction based on mouse look angles
+
+**Implementation Details:**
+
+```cpp
+void Camera::setViewDirection(glm::vec3 position, glm::vec3 direction, glm::vec3 up) {
+    assert((direction != glm::vec3{0.0f, 0.0f, 0.0f}) && "Cannot set the view direction to zero!");
+
+    const glm::vec3 w{glm::normalize(direction)};
+    const glm::vec3 u{glm::normalize(glm::cross(w, up))};
+    const glm::vec3 v{glm::cross(w, u)};
+
+    viewMatrix = glm::mat4{1.f};
+    viewMatrix[0][0] = u.x;
+    viewMatrix[1][0] = u.y;
+    viewMatrix[2][0] = u.z;
+    viewMatrix[0][1] = v.x;
+    viewMatrix[1][1] = v.y;
+    viewMatrix[2][1] = v.z;
+    viewMatrix[0][2] = w.x;
+    viewMatrix[1][2] = w.y;
+    viewMatrix[2][2] = w.z;
+    viewMatrix[3][0] = -glm::dot(u, position);
+    viewMatrix[3][1] = -glm::dot(v, position);
+    viewMatrix[3][2] = -glm::dot(w, position);
+}
+```
+
+**Orthonormal Basis Construction:**
+1. **w:** Forward direction (normalized)
+2. **u:** Right direction (cross product of forward and up)
+3. **v:** True up direction (cross product of forward and right)
+
+This creates a right-handed coordinate system aligned with the camera.
+
+---
+
+### Method 2: setViewTarget
+
+```cpp
+void setViewTarget(glm::vec3 position, 
+                  glm::vec3 target, 
+                  glm::vec3 up = glm::vec3{0.0f, -1.0f, 0.0f});
+```
+
+**Purpose:** Set camera to look at a specific point in world space.
+
+**Parameters:**
+
+| Parameter | Type | Description | Typical Values |
+|-----------|------|-------------|----------------|
+| `position` | `glm::vec3` | Camera position in world space | `{-1.0f, -2.0f, 2.0f}` |
+| `target` | `glm::vec3` | Point to look at in world space | `{0.0f, 0.0f, 2.5f}` |
+| `up` | `glm::vec3` | Up vector (defaults to Y-down) | `{0.0f, -1.0f, 0.0f}` |
+
+**Key Difference from setViewDirection:** `target` is a **point** in space, not a direction vector. The direction is computed as `target - position`.
+
+**Usage Example:**
+
+```cpp
+Camera camera;
+
+// Camera looking at origin from behind and above
+camera.setViewTarget(
+    glm::vec3{-1.0f, -2.0f, 2.0f},  // Position: back, above, right
+    glm::vec3{0.0f, 0.0f, 2.5f},    // Target: looking at this point
+    glm::vec3{0.0f, -1.0f, 0.0f}    // Up: Y-down
+);
+
+// Orbit camera always looking at scene center
+glm::vec3 orbitPosition = {
+    radius * cos(angle), 
+    height, 
+    radius * sin(angle)
+};
+camera.setViewTarget(
+    orbitPosition,                   // Camera position on orbit
+    glm::vec3{0.0f, 0.0f, 0.0f},    // Always look at origin
+    glm::vec3{0.0f, -1.0f, 0.0f}    // Up
+);
+```
+
+**Use Cases:**
+- **Object following:** Camera follows player character
+- **Orbit camera:** Camera circles around a point of interest
+- **Cinematic camera:** Looking at specific landmarks
+- **Third-person camera:** Always looking at player from behind
+
+**Implementation Details:**
+
+```cpp
+void Camera::setViewTarget(glm::vec3 position, glm::vec3 target, glm::vec3 up) {
+    setViewDirection(position, target - position, up);
+}
+```
+
+**Simply delegates to `setViewDirection()`** with the computed direction vector `(target - position)`.
+
+---
+
+### Method 3: setViewYXZ
+
+```cpp
+void setViewYXZ(glm::vec3 position, glm::vec3 rotation);
+```
+
+**Purpose:** Set camera using position and Euler angles (Yaw, Pitch, Roll).
+
+**Parameters:**
+
+| Parameter | Type | Description | Typical Values |
+|-----------|------|-------------|----------------|
+| `position` | `glm::vec3` | Camera position in world space | `{0.0f, 0.0f, -3.0f}` |
+| `rotation` | `glm::vec3` | Euler angles: (pitch, yaw, roll) in radians | `{0.0f, 0.0f, 0.0f}` |
+
+**Rotation Convention:**
+- **rotation.x:** Pitch (look up/down)
+- **rotation.y:** Yaw (look left/right)
+- **rotation.z:** Roll (tilt head left/right)
+
+**Important:** Angles are in **radians**, not degrees. Use `glm::radians()` to convert.
+
+**Usage Example:**
+
+```cpp
+Camera camera;
+glm::vec3 cameraPosition{0.0f, 0.0f, -3.0f};
+glm::vec3 cameraRotation{0.0f, 0.0f, 0.0f};
+
+// Look slightly up and to the right
+cameraRotation.x = glm::radians(15.0f);   // Pitch up 15°
+cameraRotation.y = glm::radians(30.0f);   // Yaw right 30°
+
+camera.setViewYXZ(cameraPosition, cameraRotation);
+
+// Update rotation based on mouse input
+cameraRotation.y += mouseDeltaX * sensitivity;  // Yaw
+cameraRotation.x += mouseDeltaY * sensitivity;  // Pitch
+
+// Clamp pitch to prevent flipping
+cameraRotation.x = glm::clamp(cameraRotation.x, 
+                              glm::radians(-89.0f), 
+                              glm::radians(89.0f));
+
+camera.setViewYXZ(cameraPosition, cameraRotation);
+```
+
+**Use Cases:**
+- **FPS camera:** Mouse controls pitch and yaw
+- **Character controller:** Rotation-based camera movement
+- **Debug camera:** Manual angle adjustment
+
+**Implementation Details:**
+
+```cpp
+void Camera::setViewYXZ(glm::vec3 position, glm::vec3 rotation) {
+    const float c3 = glm::cos(rotation.z);
+    const float s3 = glm::sin(rotation.z);
+    const float c2 = glm::cos(rotation.x);
+    const float s2 = glm::sin(rotation.x);
+    const float c1 = glm::cos(rotation.y);
+    const float s1 = glm::sin(rotation.y);
+    const glm::vec3 u{(c1 * c3 + s1 * s2 * s3), (c2 * s3), (c1 * s2 * s3 - c3 * s1)};
+    const glm::vec3 v{(c3 * s1 * s2 - c1 * s3), (c2 * c3), (c1 * c3 * s2 + s1 * s3)};
+    const glm::vec3 w{(c2 * s1), (-s2), (c1 * c2)};
+    viewMatrix = glm::mat4{1.f};
+    viewMatrix[0][0] = u.x;
+    viewMatrix[1][0] = u.y;
+    viewMatrix[2][0] = u.z;
+    viewMatrix[0][1] = v.x;
+    viewMatrix[1][1] = v.y;
+    viewMatrix[2][1] = v.z;
+    viewMatrix[0][2] = w.x;
+    viewMatrix[1][2] = w.y;
+    viewMatrix[2][2] = w.z;
+    viewMatrix[3][0] = -glm::dot(u, position);
+    viewMatrix[3][1] = -glm::dot(v, position);
+    viewMatrix[3][2] = -glm::dot(w, position);
+}
+```
+
+**Rotation Matrix Construction:**
+1. Compute sine and cosine for each angle
+2. Construct basis vectors (u, v, w) using Euler angle formulas
+3. Build view matrix with basis vectors and translated position
+
+**Rotation Order:** YXZ (Yaw → Pitch → Roll)
+- This order prevents gimbal lock for typical camera movements
+- Yaw applied first, then pitch, finally roll
+
+---
+
+### View Matrix Mathematics
+
+**Purpose of View Matrix:**
+
+The view matrix transforms world coordinates into camera coordinates:
+
+```
+World Space Point → [View Matrix] → Camera Space Point
+```
+
+**Matrix Structure:**
+
+```
+┌                                    ┐
+│  u.x   v.x   w.x   -dot(u, pos)   │
+│  u.y   v.y   w.y   -dot(v, pos)   │
+│  u.z   v.z   w.z   -dot(w, pos)   │
+│   0     0     0          1         │
+└                                    ┘
+
+Where:
+  u = right vector (camera X-axis)
+  v = up vector (camera Y-axis)
+  w = forward vector (camera Z-axis)
+  pos = camera position
+```
+
+**Key Insight:** The view matrix is the **inverse** of the camera's world transform. Instead of transforming the camera, we transform the world in the opposite direction.
+
+**Coordinate System:**
+- **Right (u):** Camera's local X-axis
+- **Up (v):** Camera's local Y-axis (adjusted for Vulkan Y-down)
+- **Forward (w):** Camera's local Z-axis (look direction)
+
+---
+
+### Choosing the Right Method
+
+| Method | Best For | Input Type | Example Use Case |
+|--------|----------|------------|------------------|
+| `setViewDirection()` | Free camera movement | Position + Direction vector | Spacecraft, fly-through |
+| `setViewTarget()` | Following objects | Position + Target point | Orbit camera, tracking shot |
+| `setViewYXZ()` | Euler angle control | Position + Rotation angles | FPS camera, mouse look |
+
+**Decision Flow:**
+
+```
+Do you know the target point?
+  └─ Yes → Use setViewTarget()
+  └─ No → Do you have rotation angles?
+           └─ Yes → Use setViewYXZ()
+           └─ No → Use setViewDirection()
+```
+
+---
+
 ## Projection Mathematics
 
 ### Transformation Pipeline
@@ -459,9 +779,10 @@ camera.setPerspectiveProjection(glm::radians(35.0f), aspect, 0.1f, 50.0f);
 
 ```cpp
 // Shader code
-gl_Position = projection * model * vec4(vertexPosition, 1.0);
-              ^^^^^^^^^^   ^^^^^
-              Camera       GameObject
+gl_Position = projection * view * model * vec4(vertexPosition, 1.0);
+              ^^^^^^^^^^   ^^^^   ^^^^^
+              Camera       Camera GameObject
+              (clip)       (view) (world)
 ```
 
 **In application code:**
@@ -470,12 +791,13 @@ gl_Position = projection * model * vec4(vertexPosition, 1.0);
 // Per-frame: Update camera
 Camera camera;
 camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+camera.setViewTarget(glm::vec3{-1.0f, -2.0f, 2.0f}, glm::vec3{0.0f, 0.0f, 2.5f});
 
 // Per-object: Combine transformations
 SimplePushConstantData push{};
-push.transform = camera.getProjection() * obj.transform.mat4();
-//               ^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^
-//               Camera projection         Model transform
+push.transform = camera.getProjection() * camera.getView() * obj.transform.mat4();
+//               ^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^
+//               Projection matrix         View matrix         Model transform
 ```
 
 **Transformation Stages:**
@@ -484,7 +806,7 @@ push.transform = camera.getProjection() * obj.transform.mat4();
 Local Space (model vertices)
     ↓ [Model Matrix]
 World Space (scene positioning)
-    ↓ [View Matrix - not yet implemented]
+    ↓ [View Matrix]
 View Space (camera-relative)
     ↓ [Projection Matrix]
 Clip Space (homogeneous coords)
@@ -494,12 +816,10 @@ NDC (Normalized Device Coordinates)
 Screen Space (pixels)
 ```
 
-**Current Implementation:**
-
-Since we don't have a view matrix yet, we're combining model-to-world and world-to-clip:
+**Full Pipeline:**
 
 ```
-Local Space → [Model * Projection] → Clip Space
+Local Space → [Model] → World Space → [View] → Camera Space → [Projection] → Clip Space
 ```
 
 ### Matrix Multiplication Order
@@ -508,11 +828,11 @@ Local Space → [Model * Projection] → Clip Space
 
 ```cpp
 // CORRECT
-push.transform = camera.getProjection() * obj.transform.mat4();
-//               ^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^
-//               Applied SECOND           Applied FIRST
+push.transform = camera.getProjection() * camera.getView() * obj.transform.mat4();
+//               ^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^
+//               Applied THIRD            Applied SECOND       Applied FIRST
 
-// In shader: vertex transformed by model matrix first, then projection
+// In shader: vertex transformed by model, then view, then projection
 gl_Position = push.transform * vec4(position, 1.0);
 ```
 
@@ -522,8 +842,11 @@ gl_Position = push.transform * vec4(position, 1.0);
 Step 1: Model transform positions object in world
    vertex (0.5, 0.5, 0.5) * model → world position (0, 0, 2.5)
 
-Step 2: Projection converts world to clip space  
-   world position (0, 0, 2.5) * projection → clip space (x', y', z', w')
+Step 2: View transform converts to camera space
+   world position (0, 0, 2.5) * view → camera-relative position
+
+Step 3: Projection converts camera space to clip space  
+   camera-relative position * projection → clip space (x', y', z', w')
 ```
 
 ### Vulkan-Specific Adjustments
@@ -550,7 +873,7 @@ Step 2: Projection converts world to clip space
 
 ## Usage Examples
 
-### Example 1: Basic Perspective Camera
+### Example 1: Basic Perspective Camera with View
 
 ```cpp
 void FirstApp::run() {
@@ -563,6 +886,9 @@ void FirstApp::run() {
         // Update camera projection every frame (handles window resize)
         float aspect = renderer.getAspectRatio();
         camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+        
+        // Set camera position and target
+        camera.setViewTarget(glm::vec3{-1.0f, -2.0f, 2.0f}, glm::vec3{0.0f, 0.0f, 2.5f});
 
         if (auto commandBuffer = renderer.beginFrame()) {
             renderer.beginSwapChainRenderPass(commandBuffer);
@@ -619,6 +945,9 @@ void SimpleRenderSystem::renderGameObjects(
     
     pipeline->bind(commandBuffer);
 
+    // Optimization: Compute projection-view matrix once per frame
+    auto projectionView = camera.getProjection() * camera.getView();
+
     for (auto &obj : gameObjects) {
         obj.transform.rotation.y = glm::mod(
             obj.transform.rotation.y + 0.01f, 
@@ -627,9 +956,10 @@ void SimpleRenderSystem::renderGameObjects(
 
         SimplePushConstantData push{};
         push.color = obj.color;
-        push.transform = camera.getProjection() * obj.transform.mat4();
-        //               ^^^^^^^^^^^^^^^^^^^^^^
-        //               Camera projection applied here
+        push.transform = projectionView * obj.transform.mat4();
+        //               ^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^
+        //               Projection*View  Model transform
+        //               (cached once)    (per object)
 
         vkCmdPushConstants(commandBuffer, pipelineLayout,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -778,39 +1108,6 @@ while (!window.shouldClose()) {
 
 ## Future Enhancements
 
-### View Matrix (Camera Position & Orientation)
-
-**Current Limitation:** Camera position and orientation are fixed.
-
-**Future Implementation:**
-```cpp
-class Camera {
-public:
-    void setViewDirection(glm::vec3 position, glm::vec3 direction, glm::vec3 up);
-    void setViewTarget(glm::vec3 position, glm::vec3 target, glm::vec3 up);
-    void setViewYXZ(glm::vec3 position, glm::vec3 rotation);
-    
-    const glm::mat4 &getView() const { return viewMatrix; }
-    const glm::mat4 &getProjection() const { return projectionMatrix; }
-
-private:
-    glm::mat4 viewMatrix{1.0f};
-    glm::mat4 projectionMatrix{1.0f};
-};
-```
-
-**Usage:**
-```cpp
-camera.setViewTarget(
-    {0.0f, 0.0f, -3.0f},   // Camera position (behind origin)
-    {0.0f, 0.0f, 0.0f},    // Look at origin
-    {0.0f, -1.0f, 0.0f}    // Up direction (Vulkan Y-down)
-);
-
-// In render system
-push.transform = camera.getProjection() * camera.getView() * obj.transform.mat4();
-```
-
 ### Camera Controller
 
 **Goal:** Handle user input for camera movement.
@@ -828,21 +1125,33 @@ private:
 
 ### Projection-View Matrix Caching
 
-**Optimization:** Compute once per frame instead of per object.
+**Status:** Partially implemented via manual caching in render systems.
 
+**Current Approach:**
+```cpp
+// In render system
+auto projectionView = camera.getProjection() * camera.getView();  // Once per frame
+for (auto& obj : gameObjects) {
+    push.transform = projectionView * obj.transform.mat4();  // Per object
+}
+```
+
+**Future Enhancement:** Add built-in caching to Camera class:
 ```cpp
 class Camera {
 public:
     const glm::mat4 &getProjectionView() const { 
-        return projectionMatrix * viewMatrix; 
+        if (projectionViewDirty) {
+            cachedProjectionView = projectionMatrix * viewMatrix;
+            projectionViewDirty = false;
+        }
+        return cachedProjectionView; 
     }
+    
+private:
+    mutable glm::mat4 cachedProjectionView{1.0f};
+    mutable bool projectionViewDirty{true};
 };
-
-// Usage
-glm::mat4 projectionView = camera.getProjectionView();  // Once per frame
-for (auto& obj : gameObjects) {
-    push.transform = projectionView * obj.transform.mat4();  // Per object
-}
 ```
 
 ### Frustum Culling

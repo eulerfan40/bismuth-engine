@@ -71,6 +71,8 @@ add_executable(bismuth_engine
         src/Renderer.cpp
         src/SimpleRenderSystem.hpp
         src/SimpleRenderSystem.cpp
+        src/Camera.cpp
+        src/Camera.hpp
 )
 
 # Set compiler-specific warning flags

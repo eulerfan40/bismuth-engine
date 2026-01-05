@@ -101,6 +101,7 @@ namespace engine {
 
     // Query methods
     VkRenderPass getSwapChainRenderPass() const { return swapChain->getRenderPass(); }
+    float getAspectRatio() const { return swapChain->extentAspectRatio(); }
     bool isFrameInProgress() const { return isFrameStarted; }
     
     VkCommandBuffer getCurrentCommandBuffer() const {
@@ -202,6 +203,40 @@ SimpleRenderSystem system{device, renderer.getSwapChainRenderPass()};
 ```
 
 **When to Call:** During initialization when creating render systems/pipelines.
+
+#### getAspectRatio()
+
+```cpp
+float getAspectRatio() const { return swapChain->extentAspectRatio(); }
+```
+
+**Purpose:** Get current swapchain aspect ratio for camera projection.
+
+**Returns:** Width/height ratio (e.g., 1920/1080 = 1.78).
+
+**Usage:**
+```cpp
+Camera camera;
+float aspect = renderer.getAspectRatio();
+camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+```
+
+**When to Call:** Every frame before setting camera projection (handles window resize).
+
+**Implementation:**
+```cpp
+// In SwapChain
+float extentAspectRatio() const {
+  return static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height);
+}
+```
+
+**Why Important:**
+- Prevents stretched/distorted rendering on non-square windows
+- Updates automatically when window is resized
+- Essential for correct perspective projection
+
+**See:** [CAMERA.md](CAMERA.md) for projection matrix details
 
 #### isFrameInProgress()
 

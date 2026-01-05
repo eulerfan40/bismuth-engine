@@ -24,7 +24,7 @@ The Model component manages vertex data and vertex buffers for rendering geometr
 class Model {
 public:
     struct Vertex {
-        glm::vec2 position;
+        glm::vec3 position;
         
         static std::vector<VkVertexInputBindingDescription> getBindingDescriptions();
         static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions();
@@ -52,7 +52,7 @@ The `Vertex` struct defines the layout of vertex data:
 
 ```cpp
 struct Vertex {
-    glm::vec2 position;  // 2D position in clip space
+    glm::vec3 position;  // 3D position in model/clip space
     glm::vec3 color;     // RGB color per vertex
 };
 ```
@@ -170,7 +170,7 @@ std::vector<VkVertexInputAttributeDescription> Model::Vertex::getAttributeDescri
     std::vector<VkVertexInputAttributeDescription> attributeDescriptions(2);
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
-    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[0].offset = offsetof(Vertex, position);
     
     attributeDescriptions[1].binding = 0;
@@ -184,7 +184,7 @@ std::vector<VkVertexInputAttributeDescription> Model::Vertex::getAttributeDescri
 **Attribute 0 (Position):**
 - `binding = 0`: References binding description [0]
 - `location = 0`: Corresponds to `layout(location = 0)` in vertex shader
-- `format = VK_FORMAT_R32G32_SFLOAT`: Two 32-bit floats (vec2)
+- `format = VK_FORMAT_R32G32B32_SFLOAT`: Three 32-bit floats (vec3)
 - `offset = offsetof(Vertex, position)`: Byte offset of position field
 
 **Attribute 1 (Color):**
@@ -297,7 +297,7 @@ void FirstApp::createCommandBuffers() {
 
 **Pros:**
 - Simple: Direct CPU-to-GPU transfer
-- Fine for small, static meshes (like our triangle)
+- Fine for small, static meshes (like our cube)
 - No staging buffer needed
 
 **Cons:**
@@ -412,7 +412,7 @@ vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
 Currently implemented:
 ```cpp
 struct Vertex {
-    glm::vec2 position;    // ✅ 2D positions
+    glm::vec3 position;    // ✅ 3D positions
     glm::vec3 color;       // ✅ Per-vertex colors (with interpolation)
 };
 ```
@@ -420,8 +420,8 @@ struct Vertex {
 Future extensions:
 ```cpp
 struct Vertex {
-    glm::vec3 position;    // Upgrade to 3D
-    glm::vec3 color;       // Already implemented
+    glm::vec3 position;    // ✅ Already implemented
+    glm::vec3 color;       // ✅ Already implemented
     glm::vec3 normal;      // Surface normals for lighting
     glm::vec2 texCoord;    // Texture coordinates
     glm::vec3 tangent;     // For normal mapping
@@ -540,7 +540,7 @@ model->draw(commandBuffer);
 
 **Model depends on:**
 - **Device** - for buffer creation and memory allocation
-- **GLM** - for vec2 type (future: vec3, vec4, matrices)
+- **GLM** - for vec3 type (position and color vectors)
 
 **Components that depend on Model:**
 - **Pipeline** - uses vertex descriptors during creation

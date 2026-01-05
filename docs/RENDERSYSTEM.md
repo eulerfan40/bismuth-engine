@@ -67,14 +67,17 @@ class FirstApp {
 **After (Separated by system):**
 ```cpp
 class SimpleRenderSystem {
-    void renderGameObjects(VkCommandBuffer cb, std::vector<GameObject>& gameObjects);
+    void renderGameObjects(VkCommandBuffer cb, 
+                          std::vector<GameObject>& gameObjects,
+                          const Camera& camera);
 };
 
 class FirstApp {
     void run() {
         SimpleRenderSystem system{device, renderer.getSwapChainRenderPass()};
+        Camera camera{};
         // render
-        system.renderGameObjects(commandBuffer, gameObjects);
+        system.renderGameObjects(commandBuffer, gameObjects, camera);
     }
 };
 ```
@@ -103,7 +106,9 @@ namespace engine {
     SimpleRenderSystem(const SimpleRenderSystem &) = delete;
     SimpleRenderSystem &operator=(const SimpleRenderSystem &) = delete;
 
-    void renderGameObjects(VkCommandBuffer commandBuffer, std::vector<GameObject>& gameObjects);
+    void renderGameObjects(VkCommandBuffer commandBuffer, 
+                          std::vector<GameObject>& gameObjects,
+                          const Camera& camera);
 
   private:
     void createPipelineLayout();
@@ -200,8 +205,7 @@ void SimpleRenderSystem::createPipelineLayout() {
 **Push Constant Structure:**
 ```cpp
 struct SimplePushConstantData {
-    glm::mat2 transform{1.f};  // Rotation & scale matrix
-    glm::vec2 offset;          // Translation
+    glm::mat4 transform{1.f};     // 4x4 transformation matrix (projection * model)
     alignas(16) glm::vec3 color;  // RGB color
 };
 ```
@@ -209,7 +213,7 @@ struct SimplePushConstantData {
 **Configuration:**
 - **Stage Flags:** Both vertex and fragment shaders can access
 - **Offset:** 0 (first/only push constant range)
-- **Size:** 40 bytes (mat2 + vec2 + vec3 with alignment)
+- **Size:** 80 bytes (mat4 + vec3 with alignment)
 
 **No Descriptor Sets:**
 - `setLayoutCount = 0` - not using textures or uniform buffers yet
@@ -263,7 +267,8 @@ void SimpleRenderSystem::createPipeline(VkRenderPass renderPass) {
 ```cpp
 void SimpleRenderSystem::renderGameObjects(
     VkCommandBuffer commandBuffer, 
-    std::vector<GameObject>& gameObjects) {
+    std::vector<GameObject>& gameObjects,
+    const Camera& camera) {
     
     // 1. Bind pipeline (once for all objects)
     pipeline->bind(commandBuffer);
@@ -271,16 +276,15 @@ void SimpleRenderSystem::renderGameObjects(
     // 2. Render each game object
     for (auto& obj : gameObjects) {
         // 3. Update animation
-        obj.transform2D.rotation = glm::mod(
-            obj.transform2D.rotation + 0.01f, 
+        obj.transform.rotation.y = glm::mod(
+            obj.transform.rotation.y + 0.01f, 
             glm::two_pi<float>()
         );
 
         // 4. Prepare push constants from GameObject
         SimplePushConstantData push{};
-        push.offset = obj.transform2D.translation;
         push.color = obj.color;
-        push.transform = obj.transform2D.mat2();
+        push.transform = camera.getProjection() * obj.transform.mat4();
 
         // 5. Upload push constants to GPU
         vkCmdPushConstants(
@@ -320,10 +324,10 @@ pipeline->bind(commandBuffer);
 #### 2. Animation Update
 
 ```cpp
-obj.transform2D.rotation = glm::mod(obj.transform2D.rotation + 0.01f, glm::two_pi<float>());
+obj.transform.rotation.y = glm::mod(obj.transform.rotation.y + 0.01f, glm::two_pi<float>());
 ```
 
-**Purpose:** Continuous rotation animation.
+**Purpose:** Continuous Y-axis rotation animation (spinning around vertical axis).
 
 **`glm::mod()`:** Wraps rotation to [0, 2π] range.
 
@@ -331,35 +335,41 @@ obj.transform2D.rotation = glm::mod(obj.transform2D.rotation + 0.01f, glm::two_p
 
 **Note:** This is demo code. Production would use delta time:
 ```cpp
-obj.transform2D.rotation += rotationSpeed * deltaTime;
+obj.transform.rotation.y += rotationSpeed * deltaTime;
 ```
 
 #### 3. Push Constants Preparation
 
 ```cpp
 SimplePushConstantData push{};
-push.offset = obj.transform2D.translation;
 push.color = obj.color;
-push.transform = obj.transform2D.mat2();
+push.transform = camera.getProjection() * obj.transform.mat4();
 ```
 
 **Data Extraction:**
-- `translation` → `push.offset` (vec2 position)
-- `color` → `push.color` (vec3 RGB)
-- `mat2()` → `push.transform` (2×2 rotation/scale matrix)
+- `color` → `push.color` (vec3 RGB, currently unused - vertex colors used instead)
+- Combined transformation matrix → `push.transform` (4×4 projection * model matrix)
 
 **Transform Matrix Generation:**
+
 ```cpp
-glm::mat2 Transform2DComponent::mat2() {
-    const float s = glm::sin(rotation);
-    const float c = glm::cos(rotation);
-    glm::mat2 rotMatrix{{c, s}, {-s, c}};
-    glm::mat2 scaleMat{{scale.x, 0.0f}, {0.0f, scale.y}};
-    return rotMatrix * scaleMat;
-}
+// Model matrix from GameObject (scale, rotation, translation)
+glm::mat4 modelMatrix = obj.transform.mat4();
+
+// Projection matrix from Camera
+glm::mat4 projectionMatrix = camera.getProjection();
+
+// Combined transformation (projection applied after model)
+push.transform = projectionMatrix * modelMatrix;
 ```
 
-**See:** [GAMEOBJECT.md](GAMEOBJECT.md) for transform details
+**Matrix Multiplication Order:**
+- **Right-to-left:** Model transform applied first, then projection
+- Vertex transformed from local space → world space → clip space
+
+**See:** 
+- [GAMEOBJECT.md](GAMEOBJECT.md) for transform details
+- [CAMERA.md](CAMERA.md) for projection matrix details
 
 #### 4. Push Constants Upload
 
@@ -491,13 +501,17 @@ SimpleRenderSystem(Device& device, VkRenderPass renderPass);
 ```cpp
 void FirstApp::run() {
     SimpleRenderSystem system{device, renderer.getSwapChainRenderPass()};
+    Camera camera{};
 
     while (!window.shouldClose()) {
         glfwPollEvents();
 
+        float aspect = renderer.getAspectRatio();
+        camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+
         if (auto commandBuffer = renderer.beginFrame()) {
             renderer.beginSwapChainRenderPass(commandBuffer);
-            system.renderGameObjects(commandBuffer, gameObjects);
+            system.renderGameObjects(commandBuffer, gameObjects, camera);
             renderer.endSwapChainRenderPass(commandBuffer);
             renderer.endFrame();
         }

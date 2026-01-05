@@ -58,7 +58,9 @@ namespace engine {
       pipelineConfig);
   }
 
-  void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer, std::vector<GameObject> &gameObjects) {
+  void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer,
+                                             std::vector<GameObject> &gameObjects,
+                                             const Camera &camera) {
     pipeline->bind(commandBuffer);
 
     for (auto &obj: gameObjects) {
@@ -68,7 +70,7 @@ namespace engine {
 
       SimplePushConstantData push{};
       push.color = obj.color;
-      push.transform = obj.transform.mat4();
+      push.transform = camera.getProjection() * obj.transform.mat4();
 
       vkCmdPushConstants(
         commandBuffer,

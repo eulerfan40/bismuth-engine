@@ -56,33 +56,35 @@ CPU → Vertex Data → [Vertex Shader] → Transformed Positions
 ```glsl
 #version 460
 
-layout(location = 0) in vec2 position;
+layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 color;
 
+layout(location = 0) out vec3 fragColor;
+
 layout(push_constant) uniform Push {
-  mat2 transform;
-  vec2 offset;
+  mat4 transform;
   vec3 color;
 } push;
 
 // Executed once per vertex we have
 void main () {
   //gl_Position is the output position in clip coordinates (x: -1 (left) - (right) 1, y: -1 (up) - (down) 1)
-  gl_Position = vec4(push.transform * position + push.offset, 0.0, 1.0);
+  gl_Position = push.transform * vec4(position, 1.0);
+  fragColor = color;
 }
 ```
 
 ### Input Attributes
 
 ```glsl
-layout(location = 0) in vec2 position;
+layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 color;
 ```
 
 | Location | Type | Source | Purpose |
 |----------|------|--------|---------|
-| 0 | `vec2` | Vertex buffer | 2D position (x, y) |
-| 1 | `vec3` | Vertex buffer | RGB color (unused in current implementation) |
+| 0 | `vec3` | Vertex buffer | 3D position (x, y, z) |
+| 1 | `vec3` | Vertex buffer | RGB color (per-vertex) |
 
 **Matching CPU Side:**
 
@@ -93,7 +95,7 @@ static std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescri
     
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;  // Matches shader location 0
-    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;  // vec2
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;  // vec3
     attributeDescriptions[0].offset = offsetof(Vertex, position);
     
     attributeDescriptions[1].binding = 0;
@@ -105,29 +107,29 @@ static std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescri
 }
 ```
 
-**Note:** The `color` input attribute is currently unused - color comes from push constants instead.
+**Usage:** The `color` input attribute provides per-vertex colors, enabling smooth color gradients across faces.
 
 ### Push Constants
 
 ```glsl
 layout(push_constant) uniform Push {
-  mat2 transform;
-  vec2 offset;
+  mat4 transform;
   vec3 color;
 } push;
 ```
 
 **Purpose:** Fast, per-draw-call data from CPU to GPU.
 
-**Access:** `push.transform`, `push.offset`, `push.color`
+**Access:** `push.transform`, `push.color`
+
+**Note:** The `color` field in push constants is currently unused in the vertex shader - per-vertex colors from the vertex buffer are passed through instead.
 
 **CPU Side Declaration:**
 
 ```cpp
 struct SimplePushConstantData {
-  glm::mat2 transform{1.f};     // Identity matrix by default
-  glm::vec2 offset;
-  alignas(16) glm::vec3 color;  // Alignment requirement!
+  glm::mat4 transform{1.f};     // Identity matrix by default
+  alignas(16) glm::vec3 color;  // Alignment requirement (unused in current implementation)
 };
 ```
 
@@ -135,93 +137,93 @@ struct SimplePushConstantData {
 
 | Field | Type | Size | Purpose |
 |-------|------|------|---------|
-| `transform` | `mat2` | 16 bytes | 2D rotation and scale matrix |
-| `offset` | `vec2` | 8 bytes | Translation (position) |
-| `color` | `vec3` | 12 bytes (aligned to 16) | RGB color |
+| `transform` | `mat4` | 64 bytes | 4×4 transformation matrix (scale, rotation, translation) |
+| `color` | `vec3` | 12 bytes (aligned to 16) | RGB color (unused - vertex colors used instead) |
 
 **Why `alignas(16)` for vec3?**
 - GLSL std140 layout rules require vec3 to be aligned to 16 bytes
 - Without alignment: GPU reads wrong memory location
 - Causes visual glitches or validation errors
 
-**Total Size:** 40 bytes (well within 128-byte minimum limit)
+**Total Size:** 80 bytes (well within 128-byte minimum limit)
 
 See [Push Constants](#push-constants) section for complete details.
 
 ### Output
 
 ```glsl
-gl_Position = vec4(push.transform * position + push.offset, 0.0, 1.0);
+gl_Position = push.transform * vec4(position, 1.0);
+fragColor = color;
 ```
 
-**`gl_Position`:** Built-in output variable (vec4)
+**`gl_Position`:** Built-in output variable (vec4) - final vertex position in clip space
+
+**`fragColor`:** User-defined output variable (vec3) - passed to fragment shader
 
 **Clip Space Coordinates:**
 - x: -1.0 (left) to +1.0 (right)
 - y: -1.0 (top) to +1.0 (bottom)
-- z: 0.0 (near) to 1.0 (far)
-- w: 1.0 (no perspective division)
+- z: 0.0 (near) to 1.0 (far) - Vulkan depth range with `GLM_FORCE_DEPTH_ZERO_TO_ONE`
+- w: 1.0 (no perspective division, orthographic projection)
 
 **Transformation Breakdown:**
 
 ```glsl
-vec4(push.transform * position + push.offset, 0.0, 1.0)
-     ^^^^^^^^^^^^^^   ^^^^^^^^   ^^^^^^^^^^^^  ^^^  ^^^
-           |              |            |        |    |
-      Transform        Base 2D     Translation Z=0  W=1
-   (rotate & scale)  (from vertex)  (position) (flat) (ortho)
+push.transform * vec4(position, 1.0)
+^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^
+4×4 Matrix       Vertex promoted to vec4
 ```
 
-**Transformation Order:**
-1. **Scale & Rotate:** `push.transform * position` applies 2×2 matrix
-2. **Translate:** `+ push.offset` moves to final position
-3. **Promote to 3D:** Add Z=0.0 and W=1.0 for clip space
+The 4×4 transformation matrix includes:
+1. **Scale** (upper-left 3×3, diagonal components)
+2. **Rotation** (upper-left 3×3, off-diagonal components)
+3. **Translation** (bottom row: `{tx, ty, tz, 1}`)
 
 **Matrix Multiplication:**
 
 ```glsl
-mat2 transform = mat2(
-    c*sx, s*sy,    // Column 0: [cos*scale.x, sin*scale.y]
-   -s*sx, c*sy     // Column 1: [-sin*scale.x, cos*scale.y]
-);
+mat4 T = push.transform;
+vec4 p = vec4(position, 1.0);
 
-vec2 transformed = transform * position;
-// transformed.x = transform[0][0]*position.x + transform[1][0]*position.y
-// transformed.y = transform[0][1]*position.x + transform[1][1]*position.y
+gl_Position.x = T[0][0]*p.x + T[1][0]*p.y + T[2][0]*p.z + T[3][0]*p.w
+gl_Position.y = T[0][1]*p.x + T[1][1]*p.y + T[2][1]*p.z + T[3][1]*p.w
+gl_Position.z = T[0][2]*p.x + T[1][2]*p.y + T[2][2]*p.z + T[3][2]*p.w
+gl_Position.w = T[0][3]*p.x + T[1][3]*p.y + T[2][3]*p.z + T[3][3]*p.w
 ```
+
+Since `p.w = 1.0`, the translation values `T[3][0]`, `T[3][1]`, `T[3][2]` are added directly.
 
 **Example:**
 
 ```glsl
-// Input
-position = vec2(0.5, 0.0)  // Right-pointing vertex
-push.transform = mat2(0.0, 1.0, -1.0, 0.0)  // 90° rotation
-push.offset = vec2(0.2, 0.1)  // Translation
+// Cube vertex at one corner
+position = vec3(0.5, 0.5, 0.5)
 
-// Step 1: Apply transform (rotation)
-transformed = mat2(0.0, 1.0, -1.0, 0.0) * vec2(0.5, 0.0)
-            = vec2(0.0, 0.5)  // Now pointing up
+// Transform matrix (from GameObject)
+// Includes: scale(0.5), rotation.y(0.1 rad), translation(0, 0, 0.5)
+push.transform = mat4(...computed values...)
 
-// Step 2: Apply offset (translation)
-final = vec2(0.0, 0.5) + vec2(0.2, 0.1)
-      = vec2(0.2, 0.6)
+// Apply transformation
+gl_Position = push.transform * vec4(0.5, 0.5, 0.5, 1.0)
+            = vec4(x', y', z', 1.0)  // Transformed position
 
-// Step 3: Promote to clip space
-gl_Position = vec4(0.2, 0.6, 0.0, 1.0)
+// Result: vertex is scaled, rotated, translated to final position in clip space
 ```
 
-**Why This Order?**
-- Transform (scale/rotate) happens in local space (around origin)
-- Translation moves to world/screen position
-- Standard transformation hierarchy: Scale → Rotate → Translate
+**Why This Approach?**
+- Single matrix multiplication applies all transformations
+- Efficient: GPU hardware optimized for matrix ops
+- Standard 3D graphics transformation pipeline
+- Translation included in matrix (homogeneous coordinates)
 
 ### Key Features
 
-1. **2D Transformations:** `push.transform` applies rotation and scale per draw call
-2. **Dynamic Positioning:** `push.offset` moves geometry to final position
-3. **2D Rendering:** Z is always 0.0 (flat plane)
+1. **3D Transformations:** `push.transform` applies scale, rotation, and translation in one 4×4 matrix
+2. **Per-Vertex Colors:** Color attribute from vertex buffer passed to fragment shader
+3. **3D Rendering:** Full XYZ positioning with depth testing
 4. **Per-Vertex Execution:** Runs independently for each vertex
 5. **Efficient Animation:** Change transform matrix without modifying vertex buffers
+6. **Clip Space Rendering:** Without projection matrix, coordinates map directly to clip space [0, 1]
 
 ---
 
@@ -234,35 +236,55 @@ gl_Position = vec4(0.2, 0.6, 0.0, 1.0)
 ```glsl
 #version 460
 
+layout(location = 0) in vec3 fragColor;
 // Variable stores and RGBA output color that should be written to color attachment 0
-layout (location = 0) out vec4 outColor;
+layout(location = 0) out vec4 outColor;
 
 layout(push_constant) uniform Push {
-  mat2 transform;
-  vec2 offset;
+  mat4 transform;
   vec3 color;
 } push;
 
 void main() {
-  outColor = vec4(push.color, 1.0);
+  outColor = vec4(fragColor, 1.0);
 }
+```
+
+### Input from Vertex Shader
+
+```glsl
+layout(location = 0) in vec3 fragColor;
+```
+
+**Purpose:** Receives interpolated color from vertex shader.
+
+**How Interpolation Works:**
+- Vertex shader outputs per-vertex colors
+- Rasterizer interpolates colors across the triangle face
+- Fragment shader receives interpolated color for each pixel
+
+**Example:**
+```
+Vertex 1: color = (1, 0, 0) RED
+Vertex 2: color = (0, 1, 0) GREEN  
+Vertex 3: color = (0, 0, 1) BLUE
+
+Fragment in center: fragColor ≈ (0.33, 0.33, 0.33) GRAY
+Fragment near Vertex 1: fragColor ≈ (0.8, 0.1, 0.1) REDDISH
 ```
 
 ### Push Constants
 
 ```glsl
 layout(push_constant) uniform Push {
-  mat2 transform;
-  vec2 offset;
+  mat4 transform;
   vec3 color;
 } push;
 ```
 
 **Same declaration as vertex shader** - push constants are visible to all shader stages specified in `VkPushConstantRange::stageFlags`.
 
-**Access:** `push.color` - RGB color from CPU
-
-**Note:** `push.transform` and `push.offset` are not used in fragment shader (only vertex shader needs transformation data). However, the declaration must match exactly across all shader stages.
+**Note:** `push.color` is currently **unused** in the fragment shader. The fragment shader uses the interpolated `fragColor` from vertex attributes instead. The push constant color is kept in the structure for potential future use but doesn't affect current rendering.
 
 ### Output
 
@@ -279,43 +301,51 @@ layout (location = 0) out vec4 outColor;
 ### Color Output
 
 ```glsl
-outColor = vec4(push.color, 1.0);
-                ^^^^^^^^^^^  ^^^
-                    RGB       Alpha
-               (from CPU)  (opaque)
+outColor = vec4(fragColor, 1.0);
+                ^^^^^^^^^^  ^^^
+                Interpolated Alpha
+                  Color    (opaque)
 ```
+
+**`outColor`:** Final RGBA color written to framebuffer (color attachment 0)
 
 **Example:**
-```glsl
-push.color = vec3(0.8, 0.2, 0.4)  // Pink-ish
 
-outColor = vec4(0.8, 0.2, 0.4, 1.0)
-                ^^^  ^^^  ^^^  ^^^
-                Red  Grn  Blu  Alpha=1 (opaque)
-```
+For a cube face with vertices colored:
+- Corner 1: White (0.9, 0.9, 0.9)
+- Corner 2: White (0.9, 0.9, 0.9)  
+- Corner 3: White (0.9, 0.9, 0.9)
+- Corner 4: White (0.9, 0.9, 0.9)
+
+All fragments get white: `outColor = vec4(0.9, 0.9, 0.9, 1.0)`
+
+For gradient faces (different corner colors), fragments get interpolated values between the vertex colors.
 
 ### Rendering Model
 
-**Flat Color:**
-- Entire primitive (triangle) rendered with same color
-- No interpolation or gradients
-- Color comes entirely from push constants
+**Per-Vertex Color with Interpolation (Current):**
+- Each vertex has its own color from vertex buffer
+- GPU rasterizer interpolates colors across triangle faces
+- Creates smooth color gradients
+- Each cube face can have uniform color or gradients
 
-**Previous Implementation (Per-Vertex Color):**
+**Vertex Shader → Fragment Shader Flow:**
 ```glsl
-// Old vertex shader
-layout(location = 0) out vec3 fragColor;
-fragColor = color;  // Pass vertex color to fragment shader
+// Vertex shader (runs per vertex)
+fragColor = color;  // color from vertex buffer
 
-// Old fragment shader
-layout(location = 0) in vec3 fragColor;
-outColor = vec4(fragColor, 1.0);  // Interpolated color
+// Rasterizer (automatic interpolation)
+// Generates fragments, interpolates fragColor
+
+// Fragment shader (runs per pixel)
+outColor = vec4(fragColor, 1.0);  // Use interpolated color
 ```
 
-**Why Changed?**
-- Push constants enable dynamic per-draw-call colors
-- Can draw same geometry multiple times with different colors
-- More flexible for rendering multiple instances
+**Why This Approach?**
+- Enables per-face colors (each face can be different color)
+- Smooth color transitions if adjacent vertices have different colors
+- Standard approach for colored 3D geometry
+- No need to change push constants per face
 
 ---
 

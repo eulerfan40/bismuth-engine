@@ -525,7 +525,109 @@ for (auto& obj : gameObjects) {
 
 **See:** [GAMEOBJECT.md](GAMEOBJECT.md) for complete GameObject documentation
 
-### 7. Push Constants
+### 7. Model System
+
+**Purpose:** Vertex buffer management for 3D geometry.
+
+**Key Responsibilities:**
+- Store vertex data (positions, colors) in GPU memory
+- Provide vertex layout descriptions for pipeline
+- Bind vertex buffers for rendering
+- Support per-vertex attributes
+
+**Vertex Structure:**
+```cpp
+struct Vertex {
+    glm::vec3 position;  // 3D position (x, y, z)
+    glm::vec3 color;     // RGB color per vertex
+};
+```
+
+**3D Geometry Example - Cube:**
+```cpp
+std::vector<Model::Vertex> vertices{
+    // left face (white)
+    {{-.5f, -.5f, -.5f}, {.9f, .9f, .9f}},
+    {{-.5f, .5f, .5f}, {.9f, .9f, .9f}},
+    {{-.5f, -.5f, .5f}, {.9f, .9f, .9f}},
+    // ... 36 vertices total (6 faces × 2 triangles × 3 vertices)
+};
+```
+
+**Design Benefits:**
+- **Per-vertex colors:** Each vertex can have different color, enabling gradients
+- **Reusable geometry:** Multiple GameObjects can share same Model
+- **GPU-resident:** Vertex data stored in GPU memory for fast rendering
+- **Standard format:** Compatible with typical 3D model formats
+
+**See:** [MODEL.md](MODEL.md) for complete Model documentation
+
+### 8. Camera System
+
+**Purpose:** Projection matrix management for 3D rendering.
+
+**Key Responsibilities:**
+- Generate orthographic or perspective projection matrices
+- Handle aspect ratio corrections for window dimensions
+- Define view frustum (near/far clipping planes)
+- Convert world coordinates to clip space
+
+**Projection Types:**
+
+**Orthographic (Parallel) Projection:**
+```cpp
+Camera camera;
+float aspect = renderer.getAspectRatio();
+camera.setOrthographicProjection(-aspect, aspect, -1.0f, 1.0f, -1.0f, 1.0f);
+```
+- No perspective distortion
+- Objects same size regardless of distance
+- Perfect for 2D games, UI, isometric views
+
+**Perspective Projection:**
+```cpp
+Camera camera;
+float aspect = renderer.getAspectRatio();
+camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+```
+- Realistic 3D rendering
+- Distant objects appear smaller
+- Field of view controls "zoom level"
+
+**Integration with Rendering:**
+```cpp
+// In FirstApp::run()
+Camera camera{};
+float aspect = renderer.getAspectRatio();
+camera.setPerspectiveProjection(glm::radians(50.0f), aspect, 0.1f, 10.0f);
+
+// Pass camera to render system
+simpleRenderSystem.renderGameObjects(commandBuffer, gameObjects, camera);
+
+// In render system - combine projection with model transform
+push.transform = camera.getProjection() * obj.transform.mat4();
+```
+
+**Transformation Pipeline:**
+```
+Vertex (local space)
+    ↓ [Model Matrix - GameObject transform]
+World Space
+    ↓ [Projection Matrix - Camera]
+Clip Space
+    ↓ [Perspective Division - GPU automatic]
+Screen Space
+```
+
+**Design Benefits:**
+- **Natural coordinates:** Use world units instead of normalized clip space
+- **Realistic rendering:** Perspective makes distant objects smaller
+- **Flexible viewing:** Easy to switch projection types
+- **Aspect ratio handling:** Prevents distortion on non-square screens
+
+**See:** [CAMERA.md](CAMERA.md) for complete Camera documentation
+
+### 9. Push Constants
 
 **Purpose:** Fast CPU-to-GPU data transfer for per-draw-call parameters.
 
@@ -538,8 +640,7 @@ for (auto& obj : gameObjects) {
 **Data Structure:**
 ```cpp
 struct SimplePushConstantData {
-    glm::mat2 transform{1.f};    // 2D rotation & scale matrix
-    glm::vec2 offset;            // 2D position offset
+    glm::mat4 transform{1.f};    // 4x4 transformation matrix (projection * model)
     alignas(16) glm::vec3 color; // RGB color (16-byte aligned!)
 };
 ```
@@ -547,11 +648,9 @@ struct SimplePushConstantData {
 **Memory Layout:**
 ```
 Offset  Size  Field
-0x00    16    mat2 transform
-0x10    8     vec2 offset
-0x18    8     [padding]
-0x20    12    vec3 color (aligned to 16)
-Total: 40 bytes
+0x00    64    mat4 transform (projection * model matrix)
+0x40    12    vec3 color (aligned to 16)
+Total: 80 bytes
 ```
 
 **Pipeline Layout Configuration:**
@@ -565,9 +664,8 @@ pushConstantRange.size = sizeof(SimplePushConstantData);
 **GameObject to Push Constants:**
 ```cpp
 SimplePushConstantData push{};
-push.transform = obj.transform2D.mat2();  // Rotation & scale
-push.offset = obj.transform2D.translation; // Position
-push.color = obj.color;                    // Color
+push.transform = camera.getProjection() * obj.transform.mat4();  // Projection * model
+push.color = obj.color;  // Color (currently unused - vertex colors used instead)
 
 vkCmdPushConstants(commandBuffer, pipelineLayout, 
                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -578,14 +676,13 @@ vkCmdPushConstants(commandBuffer, pipelineLayout,
 ```glsl
 // Vertex shader
 layout(push_constant) uniform Push {
-  mat2 transform;
-  vec2 offset;
+  mat4 transform;
   vec3 color;
 } push;
 
-gl_Position = vec4(push.transform * position + push.offset, 0.0, 1.0);
-                   ^^^^^^^^^^^^^^^^ ^^^^^^^^   ^^^^^^^^^^^^
-                   Rotate & Scale   Vertex     Translation
+gl_Position = push.transform * vec4(position, 1.0);
+                   ^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^
+                   Combined matrix  Vertex promoted to vec4
 
 // Fragment shader
 outColor = vec4(push.color, 1.0);

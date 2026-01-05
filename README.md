@@ -15,12 +15,16 @@ Bismuth Engine is a cross-platform 3D game engine written in C++ and Vulkan.
 - ✅ **Renderer abstraction** - Clean API for frame lifecycle management
 - ✅ **Render system pattern** - Modular, extensible rendering architecture
 - ✅ Graphics pipeline with shader support
-- ✅ Vertex buffer management with color attributes
+- ✅ **3D rendering** - Full 3D geometry with depth testing
+- ✅ **Camera system** - Orthographic and perspective projection matrices
+- ✅ Vertex buffer management with position and color attributes
 - ✅ GameObject system with component-based architecture
-- ✅ 2D transformations (translation, rotation, scale)
-- ✅ Push constants for dynamic per-draw-call data (transform, position, color)
+- ✅ **3D transformations** - mat4 with scale, rotation (Euler angles), and translation
+- ✅ Push constants for dynamic per-draw-call transformations
+- ✅ Per-vertex colors with GPU interpolation
 - ✅ SRGB color space for accurate color reproduction
 - ✅ Dynamic window resizing with automatic swapchain recreation
+- ✅ Automatic aspect ratio handling for correct projection
 - ✅ Multiple instance rendering with shared geometry
 - ✅ Per-frame animation support
 
@@ -77,5 +81,10 @@ glslc, which is used to compile shader code. It also provides validation and deb
 - **[Window](docs/WINDOW.md)** - Window creation and surface management
 - **[Device](docs/DEVICE.md)** - Vulkan device initialization
 - **[SwapChain](docs/SWAPCHAIN.md)** - Frame management and synchronization
+- **[Renderer](docs/RENDERER.md)** - Frame lifecycle and command buffer management
+- **[Render System](docs/RENDERSYSTEM.md)** - Modular rendering architecture
 - **[Pipeline](docs/PIPELINE.md)** - Graphics pipeline configuration
+- **[Shader](docs/SHADER.md)** - Vertex and fragment shader details
 - **[Model](docs/MODEL.md)** - Vertex data and buffer management
+- **[GameObject](docs/GAMEOBJECT.md)** - Entity system with transform components
+- **[Camera](docs/CAMERA.md)** - Projection matrices and view transformations

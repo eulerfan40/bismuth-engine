@@ -12,7 +12,7 @@ Complete technical documentation for the GameObject component system.
 
 - [Overview](#overview)
 - [Class Interface](#class-interface)
-- [Transform2DComponent](#transform2dcomponent)
+- [transformComponent](#transformcomponent)
 - [GameObject Management](#gameobject-management)
 - [Design Patterns](#design-patterns)
 - [Usage Examples](#usage-examples)
@@ -36,9 +36,9 @@ A **GameObject** represents a renderable entity in the scene with:
 GameObject triangle = GameObject::createGameObject();
 triangle.model = triangleModel;
 triangle.color = {0.1f, 0.8f, 0.1f};  // Green
-triangle.transform2D.translation = {0.2f, 0.0f};
-triangle.transform2D.scale = {2.0f, 0.5f};
-triangle.transform2D.rotation = glm::radians(90.0f);
+triangle.transform.translation = {0.2f, 0.0f};
+triangle.transform.scale = {2.0f, 0.5f};
+triangle.transform.rotation = glm::radians(90.0f);
 ```
 
 ### Purpose
@@ -77,7 +77,7 @@ namespace engine {
 
     std::shared_ptr<Model> model{};
     glm::vec3 color{};
-    Transform2DComponent transform2D{};
+    TransformComponent transform{};
 
   private:
     GameObject(id_t objId) : id{objId} {}
@@ -155,7 +155,7 @@ gameObjects.push_back(std::move(triangle));  // OK - move
 ```cpp
 std::shared_ptr<Model> model{};
 glm::vec3 color{};
-Transform2DComponent transform2D{};
+transformComponent transform{};
 ```
 
 **Why Public?**
@@ -173,161 +173,235 @@ Transform2DComponent transform2D{};
 - Passed to fragment shader via push constants
 - Range: 0.0 (black) to 1.0 (full intensity)
 
-**Transform2D:**
-- Position, rotation, scale in 2D space
-- See [Transform2DComponent](#transform2dcomponent) section
+**Transform:**
+- Position, rotation, scale in 3D space
+- See [TransformComponent](#transformcomponent) section
 
 ---
 
-## Transform2DComponent
+## TransformComponent
 
 ### Structure Definition
 
 ```cpp
-struct Transform2DComponent {
-    glm::vec2 translation{};      // Position offset
-    glm::vec2 scale{1.f, 1.f};    // Scale factor (default: 1.0 = original size)
-    float rotation;               // Rotation in radians
+struct TransformComponent {
+    glm::vec3 translation{};            // Position offset (x, y, z)
+    glm::vec3 scale{1.0f, 1.0f, 1.0f};  // Scale factor (default: 1.0 = original size)
+    glm::vec3 rotation{};               // Rotation angles in radians (x, y, z)
 
-    glm::mat2 mat2();             // Generate transformation matrix
+    glm::mat4 mat4();                   // Generate 4×4 transformation matrix
 };
 ```
 
 ### Translation
 
 ```cpp
-glm::vec2 translation{};
+glm::vec3 translation{};
 ```
 
-**Purpose:** Position offset in clip space coordinates.
+**Purpose:** 3D position offset in world/clip space coordinates.
 
 **Coordinate System:**
 - x: -1.0 (left) to +1.0 (right)
-- y: -1.0 (top) to +1.0 (bottom)
-- Origin (0, 0) is screen center
+- y: -1.0 (up) to +1.0 (down) - Vulkan's Y-axis points down
+- z: 0.0 (near) to 1.0 (far) - Vulkan depth range with `GLM_FORCE_DEPTH_ZERO_TO_ONE`
+- Origin (0, 0, 0) is screen center at near plane
 
 **Example:**
 ```cpp
-transform2D.translation = {0.5f, -0.3f};  // Right and slightly up
+transform.translation = {0.5f, -0.3f, 0.5f};  // Right, up, mid-depth
 ```
+
+**Important:** Without a camera/projection matrix, you're rendering directly in clip space, so Z values must be in the [0, 1] range to be visible.
 
 ### Scale
 
 ```cpp
-glm::vec2 scale{1.f, 1.f};
+glm::vec3 scale{1.0f, 1.0f, 1.0f};
 ```
 
-**Purpose:** Non-uniform scaling along x and y axes.
+**Purpose:** Non-uniform scaling along x, y, and z axes.
 
-**Default:** `{1.0f, 1.0f}` - original size
+**Default:** `{1.0f, 1.0f, 1.0f}` - original size
 
 **Examples:**
 ```cpp
-scale = {2.0f, 2.0f};   // 2x larger in both dimensions
-scale = {0.5f, 0.5f};   // Half size
-scale = {2.0f, 0.5f};   // Wide and short (stretched horizontally)
-scale = {1.0f, -1.0f};  // Vertical flip
+scale = {2.0f, 2.0f, 2.0f};     // 2x larger in all dimensions
+scale = {0.5f, 0.5f, 0.5f};     // Half size
+scale = {2.0f, 0.5f, 1.0f};     // Wide, short, normal depth (stretched horizontally)
+scale = {1.0f, -1.0f, 1.0f};    // Vertical flip
+scale = {1.0f, 1.0f, 2.0f};     // Stretched along Z-axis (depth)
 ```
 
 **Non-Uniform Scaling:**
-- Independent x and y scaling
-- Can create stretched/squashed effects
-- Useful for aspect ratio adjustments
+- Independent x, y, and z scaling
+- Can create stretched/squashed effects in 3D
+- Useful for aspect ratio adjustments or special effects
 
 ### Rotation
 
 ```cpp
-float rotation;
+glm::vec3 rotation{};
 ```
 
-**Purpose:** Rotation angle in radians (counter-clockwise).
+**Purpose:** Rotation angles in radians for each axis (Euler angles).
+
+**Components:**
+- `rotation.x` - Rotation around X-axis (pitch)
+- `rotation.y` - Rotation around Y-axis (yaw)
+- `rotation.z` - Rotation around Z-axis (roll)
 
 **Radian Conversion:**
 ```cpp
-rotation = glm::radians(90.0f);           // 90 degrees
-rotation = 0.25f * glm::two_pi<float>();  // Quarter turn
-rotation = glm::two_pi<float>();          // Full circle (360°)
+rotation.y = glm::radians(90.0f);          // 90 degrees around Y-axis
+rotation.x = 0.25f * glm::two_pi<float>(); // Quarter turn around X-axis
+rotation = {0.0f, glm::pi<float>(), 0.0f}; // 180° around Y-axis
 ```
 
-**Counter-Clockwise:**
-- Positive rotation rotates counter-clockwise
-- 0.0 = no rotation (points right)
-- π/2 (90°) = points up
-- π (180°) = points left
-- 3π/2 (270°) = points down
+**Rotation Order (Tait-Bryan Angles):**
 
-**Animation Example:**
+The transformation matrix applies rotations in this order: **Z → X → Y**
+- First: Rotate around Z-axis (roll)
+- Second: Rotate around X-axis (pitch)
+- Third: Rotate around Y-axis (yaw)
+
+This corresponds to Tait-Bryan angles of Y(1), X(2), Z(3).
+
+**Visual Guide:**
+- **X-axis rotation (pitch):** Nodding your head up/down
+- **Y-axis rotation (yaw):** Shaking your head left/right
+- **Z-axis rotation (roll):** Tilting your head sideways
+
+**Animation Examples:**
 ```cpp
-// Continuous rotation (in render loop)
-obj.transform2D.rotation = glm::mod(obj.transform2D.rotation + 0.01f, glm::two_pi<float>());
+// Continuous Y-axis rotation (spinning around vertical axis)
+obj.transform.rotation.y = glm::mod(obj.transform.rotation.y + 0.01f, glm::two_pi<float>());
+
+// Continuous X-axis rotation (tumbling forward)
+obj.transform.rotation.x = glm::mod(obj.transform.rotation.x + 0.005f, glm::two_pi<float>());
+
+// Combined rotation (complex motion)
+obj.transform.rotation.y += 0.01f;
+obj.transform.rotation.x += 0.005f;
 ```
+
+**Gimbal Lock Warning:**
+- Euler angles can suffer from gimbal lock at certain orientations
+- Occurs when two rotation axes align
+- For advanced applications, consider using quaternions instead
 
 ### Transformation Matrix
 
 ```cpp
-glm::mat2 mat2() {
-    const float s = glm::sin(rotation);
-    const float c = glm::cos(rotation);
-    glm::mat2 rotMatrix{{c, s}, {-s, c}};
-    glm::mat2 scaleMat{{scale.x, 0.0f}, {0.0f, scale.y}};
-    return rotMatrix * scaleMat;
+glm::mat4 mat4() {
+    const float c3 = glm::cos(rotation.z);
+    const float s3 = glm::sin(rotation.z);
+    const float c2 = glm::cos(rotation.x);
+    const float s2 = glm::sin(rotation.x);
+    const float c1 = glm::cos(rotation.y);
+    const float s1 = glm::sin(rotation.y);
+    return glm::mat4{
+        {
+            scale.x * (c1 * c3 + s1 * s2 * s3),
+            scale.x * (c2 * s3),
+            scale.x * (c1 * s2 * s3 - c3 * s1),
+            0.0f,
+        },
+        {
+            scale.y * (c3 * s1 * s2 - c1 * s3),
+            scale.y * (c2 * c3),
+            scale.y * (c1 * c3 * s2 + s1 * s3),
+            0.0f,
+        },
+        {
+            scale.z * (c2 * s1),
+            scale.z * (-s2),
+            scale.z * (c1 * c2),
+            0.0f,
+        },
+        {translation.x, translation.y, translation.z, 1.0f}
+    };
 }
 ```
 
-**Purpose:** Combine rotation and scale into single 2×2 matrix.
+**Purpose:** Combine scale, rotation, and translation into a single 4×4 transformation matrix.
 
-**Matrix Math:**
+**Matrix Structure:**
 
-**Rotation Matrix:**
 ```
-[ cos(θ)  sin(θ) ]
-[ -sin(θ) cos(θ) ]
-```
-
-**Scale Matrix:**
-```
-[ scale.x    0     ]
-[   0     scale.y  ]
+[  Rotation & Scale (3×3)   |  0  ]
+[         (combined)        |  0  ]
+[                          |  0  ]
+[-------------------------+-----]
+[    Translation (x,y,z)   |  1  ]
 ```
 
-**Combined (Rotation × Scale):**
-```
-[ cos(θ)*scale.x   sin(θ)*scale.y  ]
-[ -sin(θ)*scale.x  cos(θ)*scale.y  ]
-```
+**Transformation Order:** Scale → Rotate (Z→X→Y) → Translate
 
-**Order Matters:**
-- `rotMatrix * scaleMat`: Scale first, then rotate (current)
-- `scaleMat * rotMatrix`: Rotate first, then scale (different result!)
+**Why This Specific Order?**
 
-**Current order:** Scale → Rotate → Translate
+The matrix is constructed to apply transformations in this sequence:
+1. **Scale:** Resize the object uniformly or non-uniformly
+2. **Rotate (Z-axis):** Roll rotation
+3. **Rotate (X-axis):** Pitch rotation  
+4. **Rotate (Y-axis):** Yaw rotation
+5. **Translate:** Move to final world position
+
+**Matrix Breakdown:**
+
+**Upper-left 3×3 block:** Combined rotation and scale
+- Each element is a combination of sine/cosine terms from all three rotation axes
+- Scale factors are multiplied into each row
+- This is the result of matrix multiplication: Ry × Rx × Rz × Scale
+
+**Bottom row:** Translation vector `{tx, ty, tz, 1}`
+- Places the object at its world position
+- Applied last in the transformation pipeline
+
+**Right column:** Homogeneous coordinate `{0, 0, 0, 1}`
+- Required for 4×4 affine transformation matrix
+- The `1` in the bottom-right allows proper translation
 
 **Application in Shader:**
 ```glsl
 // Vertex shader
-gl_Position = vec4(push.transform * position + push.offset, 0.0, 1.0);
-                   ^^^^^^^^^^^^^^^^ ^^^^^^^^   ^^^^^^^^^^^^
-                   Rotate & Scale   Vertex     Translation
+gl_Position = push.transform * vec4(position, 1.0);
+              ^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^
+              4×4 Matrix       Vertex as vec4
 ```
 
-**Why mat2 (not mat3)?**
-- 2D transformations only need 2×2 for rotation/scale
-- Translation applied separately (as vec2 offset)
-- More efficient than 3×3 homogeneous matrix
-- Smaller push constant size (16 bytes vs 36 bytes)
-
-**Transformation Sequence:**
+**Transformation Flow:**
 ```
-Vertex Position (from Model)
+Local Vertex Position (from Model)
     ↓
-Apply Scale (stretch/squash)
+Scale (resize object)
     ↓
-Apply Rotation (orient)
+Rotate Z (roll)
     ↓
-Apply Translation (position)
+Rotate X (pitch)
+    ↓
+Rotate Y (yaw)
+    ↓
+Translate (world position)
     ↓
 Final Position (clip space)
 ```
+
+**Why mat4 (not mat3)?**
+- 3D transformations require 4×4 homogeneous matrices
+- Includes translation in the matrix itself (unlike 2D which used separate offset)
+- Standard for 3D graphics (OpenGL, DirectX, Vulkan all use 4×4)
+- Enables projection transformations (future camera support)
+
+**Performance Note:**
+- Pre-computing sin/cos values (`c1, s1, c2, s2, c3, s3`) avoids redundant calculations
+- Matrix construction happens once per object per frame
+- Much faster than separate glm::rotate() and glm::scale() calls
+
+**Tait-Bryan Angle Reference:**
+This implementation uses Tait-Bryan angles (also called Cardan angles), which are commonly used in aerospace and robotics. The rotation order Y(1), X(2), Z(3) corresponds to yaw-pitch-roll.
+
+**See:** [Wikipedia - Euler Angles](https://en.wikipedia.org/wiki/Euler_angles#Rotation_matrix) for detailed mathematical derivation.
 
 ---
 
@@ -342,9 +416,9 @@ auto model = std::make_shared<Model>(device, vertices);
 auto triangle = GameObject::createGameObject();
 triangle.model = model;
 triangle.color = {0.1f, 0.8f, 0.1f};
-triangle.transform2D.translation = {0.2f, 0.0f};
-triangle.transform2D.scale = {2.0f, 0.5f};
-triangle.transform2D.rotation = glm::radians(90.0f);
+triangle.transform.translation = {0.2f, 0.0f};
+triangle.transform.scale = {2.0f, 0.5f};
+triangle.transform.rotation = glm::radians(90.0f);
 
 gameObjects.push_back(std::move(triangle));
 ```
@@ -381,13 +455,13 @@ void FirstApp::renderGameObjects(VkCommandBuffer commandBuffer) {
 
     for (auto& obj : gameObjects) {
         // Update animation
-        obj.transform2D.rotation = glm::mod(obj.transform2D.rotation + 0.01f, glm::two_pi<float>());
+        obj.transform.rotation = glm::mod(obj.transform.rotation + 0.01f, glm::two_pi<float>());
 
         // Prepare push constants
         SimplePushConstantData push{};
-        push.offset = obj.transform2D.translation;
+        push.offset = obj.transform.translation;
         push.color = obj.color;
-        push.transform = obj.transform2D.mat2();
+        push.transform = obj.transform.mat2();
 
         // Upload to GPU
         vkCmdPushConstants(commandBuffer, pipelineLayout,
@@ -426,7 +500,7 @@ GameObject
     ├── id (unique identifier)
     ├── model (render component)
     ├── color (visual component)
-    └── transform2D (spatial component)
+    └── transform (spatial component)
 ```
 
 **Benefits:**
@@ -446,7 +520,7 @@ class ColoredEntity : public RenderableEntity { glm::vec3 color; };
 struct GameObject {
     Model* model;
     glm::vec3 color;
-    Transform2D transform;
+    transform transform;
     // Easy to add: PhysicsComponent, AudioComponent, etc.
 };
 ```
@@ -481,7 +555,7 @@ struct GameObjectManager {
     std::vector<id_t> ids;
     std::vector<Model*> models;
     std::vector<glm::vec3> colors;
-    std::vector<Transform2D> transforms;
+    std::vector<transform> transforms;
 };
 ```
 
@@ -511,8 +585,8 @@ void FirstApp::loadGameObjects() {
         auto triangle = GameObject::createGameObject();
         triangle.model = triangleModel;  // Share same geometry
         triangle.color = {0.2f * i, 0.0f, 1.0f - 0.2f * i};  // Blue to magenta gradient
-        triangle.transform2D.translation = {-0.8f + 0.4f * i, 0.0f};  // Spread horizontally
-        triangle.transform2D.scale = {0.5f, 0.5f};  // Half size
+        triangle.transform.translation = {-0.8f + 0.4f * i, 0.0f};  // Spread horizontally
+        triangle.transform.scale = {0.5f, 0.5f};  // Half size
         gameObjects.push_back(std::move(triangle));
     }
 }
@@ -524,14 +598,14 @@ void FirstApp::loadGameObjects() {
 auto spinner = GameObject::createGameObject();
 spinner.model = triangleModel;
 spinner.color = {1.0f, 0.5f, 0.0f};  // Orange
-spinner.transform2D.translation = {0.0f, 0.0f};  // Center
-spinner.transform2D.scale = {0.8f, 0.8f};
-spinner.transform2D.rotation = 0.0f;
+spinner.transform.translation = {0.0f, 0.0f};  // Center
+spinner.transform.scale = {0.8f, 0.8f};
+spinner.transform.rotation = 0.0f;
 
 gameObjects.push_back(std::move(spinner));
 
 // In renderGameObjects():
-obj.transform2D.rotation += 0.05f;  // Rotate every frame
+obj.transform.rotation += 0.05f;  // Rotate every frame
 ```
 
 ### Example 3: Pulsing Scale Animation
@@ -543,7 +617,7 @@ time += 0.016f;  // ~60 FPS
 
 for (auto& obj : gameObjects) {
     float pulse = 1.0f + 0.3f * glm::sin(time * 2.0f);  // Oscillate between 0.7 and 1.3
-    obj.transform2D.scale = {pulse, pulse};
+    obj.transform.scale = {pulse, pulse};
     
     // Update push constants and render...
 }
@@ -567,11 +641,11 @@ auto squareModel = std::make_shared<Model>(device, squareVerts);
 
 auto triangle = GameObject::createGameObject();
 triangle.model = triangleModel;
-triangle.transform2D.translation = {-0.5f, 0.0f};
+triangle.transform.translation = {-0.5f, 0.0f};
 
 auto square = GameObject::createGameObject();
 square.model = squareModel;
-square.transform2D.translation = {0.5f, 0.0f};
+square.transform.translation = {0.5f, 0.0f};
 
 gameObjects.push_back(std::move(triangle));
 gameObjects.push_back(std::move(square));
@@ -586,8 +660,8 @@ gameObjects.push_back(std::move(square));
 ```
 GameObject                        GPU
 ----------                        ---
-transform2D.translation    →    push.offset (vec2)
-transform2D.mat2()         →    push.transform (mat2)
+transform.translation    →    push.offset (vec2)
+transform.mat2()         →    push.transform (mat2)
 color                      →    push.color (vec3)
 model                      →    Vertex Buffer
     ↓
@@ -670,14 +744,14 @@ gameObjects.push_back(std::move(obj));
 
 2. **Position off-screen:**
 ```cpp
-obj.transform2D.translation = {5.0f, 5.0f};  // Outside clip space [-1, 1]!
+obj.transform.translation = {5.0f, 5.0f};  // Outside clip space [-1, 1]!
 ```
 
 **Solution:** Keep translation within visible range [-1.0, 1.0].
 
 3. **Scale too small:**
 ```cpp
-obj.transform2D.scale = {0.0001f, 0.0001f};  // Invisible!
+obj.transform.scale = {0.0001f, 0.0001f};  // Invisible!
 ```
 
 **Solution:** Use reasonable scale values (0.1 to 10.0 typical range).
@@ -697,19 +771,19 @@ obj.color = {0.0f, 0.0f, 0.0f};  // Black on black background!
 
 1. **Rotation in degrees instead of radians:**
 ```cpp
-obj.transform2D.rotation = 90.0f;  // WRONG - should be radians!
+obj.transform.rotation = 90.0f;  // WRONG - should be radians!
 ```
 
 **Solution:**
 ```cpp
-obj.transform2D.rotation = glm::radians(90.0f);  // Correct
+obj.transform.rotation = glm::radians(90.0f);  // Correct
 ```
 
 2. **Transform not uploaded to GPU:**
 ```cpp
 SimplePushConstantData push{};
-push.offset = obj.transform2D.translation;
-// Forgot: push.transform = obj.transform2D.mat2();
+push.offset = obj.transform.translation;
+// Forgot: push.transform = obj.transform.mat2();
 ```
 
 **Solution:** Always call `mat2()` and assign to push constants.
@@ -739,7 +813,7 @@ obj2.color = {1.0f, 0.0f, 0.0f};  // Both obj1 and obj2 affected
 
 **Debugging:**
 ```cpp
-auto mat = obj.transform2D.mat2();
+auto mat = obj.transform.mat2();
 std::cout << "Transform matrix:\n";
 std::cout << mat[0][0] << " " << mat[0][1] << "\n";
 std::cout << mat[1][0] << " " << mat[1][1] << "\n";
@@ -765,19 +839,19 @@ std::cout << mat[1][0] << " " << mat[1][1] << "\n";
 
 **Cause:** Inconsistent frame times or excessive rotation speed:
 ```cpp
-obj.transform2D.rotation += 0.5f;  // Too fast! (~28° per frame)
+obj.transform.rotation += 0.5f;  // Too fast! (~28° per frame)
 ```
 
 **Solution:**
 ```cpp
-obj.transform2D.rotation += 0.01f;  // ~0.57° per frame (smooth)
-obj.transform2D.rotation = glm::mod(obj.transform2D.rotation, glm::two_pi<float>());
+obj.transform.rotation += 0.01f;  // ~0.57° per frame (smooth)
+obj.transform.rotation = glm::mod(obj.transform.rotation, glm::two_pi<float>());
 ```
 
 Or use delta time:
 ```cpp
 float deltaTime = 0.016f;  // Frame time
-obj.transform2D.rotation += glm::radians(60.0f) * deltaTime;  // 60°/sec
+obj.transform.rotation += glm::radians(60.0f) * deltaTime;  // 60°/sec
 ```
 
 ---
@@ -789,7 +863,7 @@ obj.transform2D.rotation += glm::radians(60.0f) * deltaTime;  // 60°/sec
 **Goal:** Objects with parent-child relationships.
 
 ```cpp
-struct Transform2DComponent {
+struct transformComponent {
     glm::vec2 translation{};
     glm::vec2 scale{1.f, 1.f};
     float rotation;
@@ -799,7 +873,7 @@ struct Transform2DComponent {
     glm::mat3 worldMatrix() {
         glm::mat3 local = localMatrix();
         if (parent) {
-            return parent->transform2D.worldMatrix() * local;
+            return parent->transform.worldMatrix() * local;
         }
         return local;
     }
@@ -857,9 +931,9 @@ nlohmann::json GameObject::toJson() {
     return {
         {"id", id},
         {"color", {color.r, color.g, color.b}},
-        {"translation", {transform2D.translation.x, transform2D.translation.y}},
-        {"scale", {transform2D.scale.x, transform2D.scale.y}},
-        {"rotation", transform2D.rotation}
+        {"translation", {transform.translation.x, transform.translation.y}},
+        {"scale", {transform.scale.x, transform.scale.y}},
+        {"rotation", transform.rotation}
     };
 }
 ```
@@ -888,7 +962,7 @@ struct AnimationComponent {
     float currentTime;
     
     void update(float deltaTime);
-    Transform2D interpolate();
+    transform interpolate();
 };
 ```
 

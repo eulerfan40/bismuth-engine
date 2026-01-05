@@ -4,15 +4,18 @@ The Model component manages vertex data and vertex buffers for rendering geometr
 
 ## Overview
 
-**Purpose:** Encapsulate vertex data management, including buffer creation, memory allocation, and rendering commands.
+**Purpose:** Encapsulate vertex data management, including buffer creation, memory allocation, OBJ file loading, and rendering commands.
 
 **Key Responsibilities:**
+- Load 3D models from OBJ files with automatic vertex deduplication
 - Store vertex data in GPU-accessible memory
 - Define vertex input layout (binding and attribute descriptions)
 - Bind vertex buffers to command buffers
 - Issue draw commands
 
 **Location:** `engine/src/Model.hpp`, `engine/src/Model.cpp`
+
+**Dependencies:** Device, GLM, tinyobjloader, Utils (for hash combining)
 
 ---
 
@@ -24,20 +27,28 @@ The Model component manages vertex data and vertex buffers for rendering geometr
 class Model {
 public:
     struct Vertex {
-        glm::vec3 position;
-        glm::vec3 color;
+        glm::vec3 position{};
+        glm::vec3 color{};
+        glm::vec3 normal{};
+        glm::vec2 uv{};
         
         static std::vector<VkVertexInputBindingDescription> getBindingDescriptions();
         static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions();
+        
+        bool operator==(const Vertex& other) const;
     };
 
     struct Data {
         std::vector<Vertex> vertices{};
         std::vector<uint32_t> indices{};
+        
+        void loadModel(const std::string& filePath);
     };
 
     Model(Device& device, const Data& data);
     ~Model();
+    
+    static std::unique_ptr<Model> createModelFromFile(Device& device, const std::string& filePath);
     
     void bind(VkCommandBuffer commandBuffer);
     void draw(VkCommandBuffer commandBuffer);
@@ -65,16 +76,31 @@ The `Vertex` struct defines the layout of vertex data:
 
 ```cpp
 struct Vertex {
-    glm::vec3 position;  // 3D position in model space
-    glm::vec3 color;     // RGB color per vertex
+    glm::vec3 position{};  // 3D position in model space
+    glm::vec3 color{};     // RGB color per vertex
+    glm::vec3 normal{};    // Surface normal for lighting calculations
+    glm::vec2 uv{};        // Texture coordinates
+    
+    bool operator==(const Vertex& other) const {
+        return position == other.position && 
+               color == other.color && 
+               normal == other.normal && 
+               uv == other.uv;
+    }
 };
 ```
 
-**Current attributes:**
-- `position` (vec3): 3D coordinates for 3D rendering
+**Vertex attributes:**
+- `position` (vec3): 3D coordinates in model space
 - `color` (vec3): RGB color values (0.0 to 1.0 per channel)
+- `normal` (vec3): Surface normal vector for lighting (currently unused in shaders)
+- `uv` (vec2): Texture coordinates for UV mapping (currently unused in shaders)
 
-**Future expansion:** Additional attributes like normals, texture coordinates, tangents can be added as fields in this struct.
+**Equality operator:** Required for using `Vertex` as a key in `std::unordered_map` for vertex deduplication during model loading.
+
+**Default initialization:** All fields are value-initialized to zero using `{}` syntax.
+
+**Future usage:** Normal and UV attributes are loaded from OBJ files but not yet consumed by shaders. They're prepared for future lighting and texturing systems.
 
 ### Data Structure
 
@@ -82,8 +108,10 @@ The `Data` struct encapsulates all geometry data for a model:
 
 ```cpp
 struct Data {
-    std::vector<Vertex> vertices{};  // Vertex data with positions and colors
+    std::vector<Vertex> vertices{};  // Vertex data with positions, colors, normals, UVs
     std::vector<uint32_t> indices{}; // Optional index buffer for shared vertices
+    
+    void loadModel(const std::string& filePath);
 };
 ```
 
@@ -92,6 +120,8 @@ struct Data {
 **Index buffer usage:**
 - **With indices:** Efficient representation of meshes with shared vertices (e.g., cube has 24 vertices instead of 36)
 - **Without indices:** Simple vertex-only rendering (empty indices vector)
+
+**loadModel() method:** Populates vertices and indices from OBJ files using tinyobjloader, automatically deduplicating vertices.
 
 ---
 
@@ -311,16 +341,32 @@ std::vector<VkVertexInputBindingDescription> Model::Vertex::getBindingDescriptio
 
 ```cpp
 std::vector<VkVertexInputAttributeDescription> Model::Vertex::getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(2);
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(4);
+    
+    // Position attribute (location 0)
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[0].offset = offsetof(Vertex, position);
     
+    // Color attribute (location 1)
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1;
     attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[1].offset = offsetof(Vertex, color);
+    
+    // Normal attribute (location 2)
+    attributeDescriptions[2].binding = 0;
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(Vertex, normal);
+    
+    // UV attribute (location 3)
+    attributeDescriptions[3].binding = 0;
+    attributeDescriptions[3].location = 3;
+    attributeDescriptions[3].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[3].offset = offsetof(Vertex, uv);
+    
     return attributeDescriptions;
 }
 ```
@@ -336,6 +382,20 @@ std::vector<VkVertexInputAttributeDescription> Model::Vertex::getAttributeDescri
 - `location = 1`: Corresponds to `layout(location = 1)` in vertex shader
 - `format = VK_FORMAT_R32G32B32_SFLOAT`: Three 32-bit floats (vec3)
 - `offset = offsetof(Vertex, color)`: Byte offset of color field
+
+**Attribute 2 (Normal):**
+- `binding = 0`: References binding description [0]
+- `location = 2`: Corresponds to `layout(location = 2)` in vertex shader
+- `format = VK_FORMAT_R32G32B32_SFLOAT`: Three 32-bit floats (vec3)
+- `offset = offsetof(Vertex, normal)`: Byte offset of normal field
+- **Note:** Currently unused in shaders, reserved for future lighting
+
+**Attribute 3 (UV):**
+- `binding = 0`: References binding description [0]
+- `location = 3`: Corresponds to `layout(location = 3)` in vertex shader
+- `format = VK_FORMAT_R32G32_SFLOAT`: Two 32-bit floats (vec2)
+- `offset = offsetof(Vertex, uv)`: Byte offset of uv field
+- **Note:** Currently unused in shaders, reserved for future texturing
 
 **Purpose:** Maps struct fields to vertex shader inputs.
 
@@ -409,9 +469,248 @@ void Model::draw(VkCommandBuffer commandBuffer) {
 
 ---
 
+## Model Loading from OBJ Files
+
+### createModelFromFile()
+
+```cpp
+std::unique_ptr<Model> Model::createModelFromFile(Device &device, const std::string &filePath) {
+    Data data{};
+    data.loadModel(filePath);
+    return std::make_unique<Model>(device, data);
+}
+```
+
+**Purpose:** Factory method for loading models from OBJ files.
+
+**Parameters:**
+- `device`: Reference to Device component
+- `filePath`: Path to .obj file (use `MODELS_DIR` macro for portability)
+
+**Returns:** `std::unique_ptr<Model>` ready for rendering
+
+**Usage:**
+```cpp
+std::shared_ptr<Model> model = Model::createModelFromFile(
+    device, std::string(MODELS_DIR) + "smooth_vase.obj");
+```
+
+**Why factory method?** Separates file loading logic from Model construction, providing a cleaner API.
+
+### Data::loadModel()
+
+```cpp
+void Model::Data::loadModel(const std::string &filePath) {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filePath.c_str())) {
+        throw std::runtime_error(warn + err);
+    }
+
+    vertices.clear();
+    indices.clear();
+
+    std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+    for (const auto &shape: shapes) {
+        for (const auto &index: shape.mesh.indices) {
+            Vertex vertex{};
+
+            if (index.vertex_index >= 0) {
+                vertex.position = {
+                    attrib.vertices[3 * index.vertex_index + 0],
+                    attrib.vertices[3 * index.vertex_index + 1],
+                    attrib.vertices[3 * index.vertex_index + 2]
+                };
+
+                auto colorIndex = 3 * index.vertex_index + 2;
+                if (colorIndex < attrib.colors.size()) {
+                    vertex.color = {
+                        attrib.colors[colorIndex - 2],
+                        attrib.colors[colorIndex - 1],
+                        attrib.colors[colorIndex - 0]
+                    };
+                } else {
+                    vertex.color = {1.0f, 1.0f, 1.0f};  // Default white
+                };
+            }
+
+            if (index.normal_index >= 0) {
+                vertex.normal = {
+                    attrib.normals[3 * index.normal_index + 0],
+                    attrib.normals[3 * index.normal_index + 1],
+                    attrib.normals[3 * index.normal_index + 2]
+                };
+            }
+
+            if (index.texcoord_index >= 0) {
+                vertex.uv = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    attrib.texcoords[2 * index.texcoord_index + 1]
+                };
+            }
+
+            if (uniqueVertices.count(vertex) == 0) {
+                uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+                vertices.push_back(vertex);
+            }
+            indices.push_back(uniqueVertices[vertex]);
+        }
+    }
+}
+```
+
+**Purpose:** Load geometry from OBJ file with automatic vertex deduplication.
+
+**Process:**
+
+1. **Parse OBJ file:** Uses tinyobjloader to parse the file into attributes, shapes, and materials
+2. **Error handling:** Throws `std::runtime_error` if parsing fails
+3. **Clear existing data:** Ensures clean state for loading
+4. **Create deduplication map:** `std::unordered_map<Vertex, uint32_t>` tracks unique vertices
+5. **Iterate shapes:** Process each shape in the OBJ file (models can have multiple meshes)
+6. **Iterate indices:** Process each triangle vertex index
+7. **Load position:** Extract XYZ coordinates from `attrib.vertices`
+8. **Load color (optional):** Extract RGB if available, default to white (1,1,1)
+9. **Load normal (optional):** Extract normal vector if present
+10. **Load UV (optional):** Extract texture coordinates if present
+11. **Deduplicate:** Check if vertex already exists in map
+12. **Add unique vertex:** If new, add to vertices vector and map
+13. **Build index buffer:** Always add index to indices vector
+
+**Vertex Deduplication Algorithm:**
+
+```cpp
+if (uniqueVertices.count(vertex) == 0) {
+    uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+    vertices.push_back(vertex);
+}
+indices.push_back(uniqueVertices[vertex]);
+```
+
+**How it works:**
+- Uses `std::unordered_map` with `Vertex` as key (requires `std::hash<Vertex>` specialization)
+- When encountering a vertex, check if it's already in the map
+- If new: assign it the next index, add to vertices, store in map
+- If duplicate: reuse existing index
+- Always add the index (new or existing) to the indices array
+
+**Benefits:**
+- **Memory reduction:** Typical savings of 40-60% for models with shared vertices
+- **Performance:** O(1) average lookup time for deduplication
+- **GPU cache efficiency:** Smaller vertex buffers improve cache hit rates
+
+**Hash Function Requirement:**
+
+The deduplication relies on a custom hash function defined in `Model.cpp`:
+
+```cpp
+namespace std {
+    template <>
+    struct hash<engine::Model::Vertex> {
+        size_t operator()(engine::Model::Vertex const &vertex) const {
+            size_t seed = 0;
+            engine::hashCombine(seed, vertex.position, vertex.color, vertex.normal, vertex.uv);
+            return seed;
+        }
+    };
+}
+```
+
+**Requirements:**
+- `Vertex::operator==()` for equality comparison
+- `std::hash<Vertex>` specialization for hashing
+- `#include <glm/gtx/hash.hpp>` with `GLM_ENABLE_EXPERIMENTAL` for GLM type hashing
+
+**Supported OBJ Features:**
+- ✅ Vertex positions (`v x y z`)
+- ✅ Vertex normals (`vn x y z`)
+- ✅ Texture coordinates (`vt u v`)
+- ✅ Vertex colors (optional, defaults to white)
+- ✅ Multiple shapes/meshes per file
+- ✅ Triangulated faces (`f v1/vt1/vn1 v2/vt2/vn2 v3/vt3/vn3`)
+- ❌ Materials (loaded but not used)
+- ❌ Quads (must be triangulated before loading)
+
+**Example OBJ File:**
+```obj
+# Vertex positions
+v 0.0 0.0 0.0
+v 1.0 0.0 0.0
+v 0.5 1.0 0.0
+
+# Texture coordinates
+vt 0.0 0.0
+vt 1.0 0.0
+vt 0.5 1.0
+
+# Normals
+vn 0.0 0.0 1.0
+vn 0.0 0.0 1.0
+vn 0.0 0.0 1.0
+
+# Face (position/uv/normal)
+f 1/1/1 2/2/2 3/3/3
+```
+
+**Path Handling:**
+
+Use the `MODELS_DIR` macro for portable paths:
+```cpp
+// Correct - works in all IDEs and build configurations
+std::string(MODELS_DIR) + "mymodel.obj"
+
+// Incorrect - depends on working directory
+"engine/models/mymodel.obj"  // Breaks in some IDEs
+```
+
+**The `MODELS_DIR` macro is defined in CMake:**
+```cmake
+set(MODELS_DIR "${CMAKE_SOURCE_DIR}/engine/models/")
+target_compile_definitions(bismuth_engine PRIVATE MODELS_DIR="${MODELS_DIR}")
+```
+
+---
+
 ## Usage Example
 
-### Loading a Cube with Index Buffer
+### Loading Models from OBJ Files
+
+```cpp
+void FirstApp::loadGameObjects() {
+    // Load a smooth vase model
+    std::shared_ptr<Model> model = Model::createModelFromFile(
+        device, std::string(MODELS_DIR) + "smooth_vase.obj");
+
+    auto gameObject = GameObject::createGameObject();
+    gameObject.model = model;
+    gameObject.transform.translation = {0.0f, 0.0f, 2.5f};
+    gameObject.transform.scale = glm::vec3(3.0f);
+
+    // Load a skull model
+    std::shared_ptr<Model> model2 = Model::createModelFromFile(
+        device, std::string(MODELS_DIR) + "skull.obj");
+
+    auto gameObject1 = GameObject::createGameObject();
+    gameObject1.model = model2;
+    gameObject1.transform.translation = {2.0f, 0.0f, 2.5f};
+    gameObject1.transform.rotation = {0.0f, 0.0f, glm::radians(90.0f)};
+    gameObject1.transform.scale = glm::vec3(0.0175f);
+
+    gameObjects.push_back(std::move(gameObject));
+    gameObjects.push_back(std::move(gameObject1));
+}
+```
+
+**Key points:**
+- Use `MODELS_DIR` macro for portable file paths
+- Models are loaded once and can be shared between GameObjects
+- Adjust scale to fit model size (some models use different units)
+- Transformations applied per GameObject instance
+
+### Loading a Cube with Index Buffer (Manual)
 
 ```cpp
 void FirstApp::loadGameObjects() {
@@ -762,9 +1061,11 @@ model->draw(commandBuffer);
 ## Related Documentation
 
 - **[Device Component](DEVICE.md)** - Buffer creation and memory management
-- **[Pipeline Component](PIPELINE.md)** - How vertex input state is configured with color attributes
+- **[Utils Component](UTILS.md)** - Hash combining utility for vertex deduplication
+- **[Pipeline Component](PIPELINE.md)** - How vertex input state is configured with vertex attributes
 - **[SwapChain Component](SWAPCHAIN.md)** - SRGB format for accurate color display
-- **[Architecture Overview](ARCHITECTURE.md)** - How Model fits into the rendering loop and color interpolation details
+- **[Architecture Overview](ARCHITECTURE.md)** - How Model fits into the rendering loop and OBJ loading system
+- **[Configuration](CONFIGURATION.md)** - MODELS_DIR macro and tinyobjloader dependency
 
 ---
 

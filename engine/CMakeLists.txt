@@ -33,6 +33,16 @@ FetchContent_Declare(
         GIT_SHALLOW TRUE
 )
 
+# Download tinyobjloader header (single file)
+set(TINYOBJLOADER_HEADER "${CMAKE_CURRENT_BINARY_DIR}/tinyobjloader/tiny_obj_loader.h")
+if(NOT EXISTS ${TINYOBJLOADER_HEADER})
+    file(DOWNLOAD
+        "https://raw.githubusercontent.com/tinyobjloader/tinyobjloader/release/tiny_obj_loader.h"
+        ${TINYOBJLOADER_HEADER}
+        SHOW_PROGRESS
+    )
+endif()
+
 # Configure GLFW
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -50,6 +60,9 @@ FetchContent_MakeAvailable(glfw glm)
 
 # Set a path to the compiled shader directory to avoid IDE-specific CWD relative path issues
 set(COMPILED_SHADERS_DIR "${CMAKE_SOURCE_DIR}/engine/shaders/bin/")
+
+# Set a path to the models directory to avoid IDE-specific CWD relative path issues
+set(MODELS_DIR "${CMAKE_SOURCE_DIR}/engine/models/")
 
 # Engine executable
 add_executable(bismuth_engine
@@ -75,6 +88,7 @@ add_executable(bismuth_engine
         src/Camera.hpp
         src/KeyboardMovementController.cpp
         src/KeyboardMovementController.hpp
+        src/Utils.hpp
 )
 
 # Set compiler-specific warning flags
@@ -86,6 +100,12 @@ endif()
 
 # Expose the compiled shaders directory to C++ as a compile-time constant string macro
 target_compile_definitions(bismuth_engine PRIVATE COMPILED_SHADERS_DIR="${COMPILED_SHADERS_DIR}")
+
+# Expose the models directory to C++ as a compile-time constant string macro
+target_compile_definitions(bismuth_engine PRIVATE MODELS_DIR="${MODELS_DIR}")
+
+# Add tinyobjloader header directory to include paths
+target_include_directories(bismuth_engine PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/tinyobjloader)
 
 # Link libraries
 target_link_libraries(bismuth_engine PRIVATE

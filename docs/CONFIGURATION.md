@@ -7,7 +7,7 @@ Quick reference for technical decisions and versions.
 - **Language:** C++20
 - **Graphics:** Vulkan 1.3+
 - **Build:** CMake 3.27+
-- **Libraries:** Vulkan Headers, volk, GLFW, GLM
+- **Libraries:** Vulkan Headers, volk, GLFW, GLM, tinyobjloader
 - **Dev Tools** Vulkan SDK
 
 ## Dependencies
@@ -18,6 +18,7 @@ Quick reference for technical decisions and versions.
 | volk | Latest | Vulkan loader |
 | GLFW | Latest | Windows/Input |
 | GLM | Latest | Math |
+| tinyobjloader | Release | OBJ file loading |
 
 Using `GIT_SHALLOW TRUE` to grab latest from each repo without previous version history.
 
@@ -57,6 +58,11 @@ FetchContent_MakeAvailable(library)
   - Windows: `engine/scripts/compile.bat`
   - Linux/macOS: `engine/scripts/compile.sh`
 
+**Asset Paths:**
+- CMake exposes `COMPILED_SHADERS_DIR` and `MODELS_DIR` as compile-time macros
+- Avoids relative path issues across different IDEs and build configurations
+- Usage: `MODELS_DIR "filename.obj"` in C++ code
+
 ## Project Structure
 
 ```
@@ -83,6 +89,7 @@ bismuth-engine/
     │   │   ├── simple_shader.vert
     │   │   └── simple_shader.frag
     │   └── bin/             # Compiled shaders (.spv, git-ignored)
+    ├── models/              # 3D model assets (.obj files)
     └── src/                 # C++ source files
         ├── main.cpp         # Entry point
         ├── FirstApp.hpp/cpp # Application orchestration

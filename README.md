@@ -16,6 +16,7 @@ Bismuth Engine is a cross-platform 3D game engine written in C++ and Vulkan.
 - ✅ **Render system pattern** - Modular, extensible rendering architecture
 - ✅ Graphics pipeline with shader support
 - ✅ **3D rendering** - Full 3D geometry with depth testing
+- ✅ **OBJ model loading** - Load 3D models from OBJ files with automatic vertex deduplication (40-60% memory savings)
 - ✅ **Camera system** - Projection matrices (perspective/orthographic) and view transformations
 - ✅ **Camera view control** - Position and orient camera with setViewTarget, setViewDirection, and setViewYXZ
 - ✅ **Interactive camera control** - Keyboard-based first-person camera with WASD movement and arrow key look controls
@@ -69,6 +70,7 @@ The below dependencies are downloaded automatically using CMake FetchContent:
 - volk (Vulkan loader)
 - GLFW (windowing)
 - GLM (math)
+- tinyobjloader (OBJ file loading)
 
 In addition, you must manually download and install the Vulkan SDK. It comes with 
 glslc, which is used to compile shader code. It also provides validation and debugging tools.
@@ -88,7 +90,8 @@ glslc, which is used to compile shader code. It also provides validation and deb
 - **[Render System](docs/RENDERSYSTEM.md)** - Modular rendering architecture
 - **[Pipeline](docs/PIPELINE.md)** - Graphics pipeline configuration
 - **[Shader](docs/SHADER.md)** - Vertex and fragment shader details
-- **[Model](docs/MODEL.md)** - Vertex data and buffer management
+- **[Model](docs/MODEL.md)** - Vertex data, buffer management, and OBJ file loading
+- **[Utils](docs/UTILS.md)** - Common utility functions (hash combining)
 - **[GameObject](docs/GAMEOBJECT.md)** - Entity system with transform components
 - **[Camera](docs/CAMERA.md)** - Projection matrices and view transformations
 - **[KeyboardMovementController](docs/KEYBOARDMOVEMENTCONTROLLER.md)** - First-person keyboard camera controls

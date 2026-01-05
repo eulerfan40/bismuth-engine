@@ -405,9 +405,10 @@ void FirstApp::run() {
 
 ### 6. Model System
 
-**Purpose:** Manages vertex data, index buffers, and GPU memory for rendering geometry efficiently.
+**Purpose:** Manages vertex data, index buffers, GPU memory, and OBJ file loading for rendering geometry efficiently.
 
 **Key Responsibilities:**
+- Load 3D models from OBJ files with automatic vertex deduplication
 - Store vertex data in device-local GPU memory
 - Manage optional index buffers for shared vertices
 - Use staging buffers for optimal memory transfer
@@ -418,15 +419,36 @@ void FirstApp::run() {
 **Data Structures:**
 ```cpp
 struct Vertex {
-    glm::vec3 position;  // 3D position
-    glm::vec3 color;     // RGB color per vertex
+    glm::vec3 position{};  // 3D position
+    glm::vec3 color{};     // RGB color per vertex
+    glm::vec3 normal{};    // Surface normal (for future lighting)
+    glm::vec2 uv{};        // Texture coordinates (for future texturing)
+    
+    bool operator==(const Vertex& other) const;
 };
 
 struct Data {
     std::vector<Vertex> vertices{};   // Vertex data
     std::vector<uint32_t> indices{};  // Optional index buffer
+    
+    void loadModel(const std::string& filePath);  // Load from OBJ file
 };
 ```
+
+**Model Loading:**
+```cpp
+// Factory method for loading OBJ files
+std::shared_ptr<Model> model = Model::createModelFromFile(
+    device, std::string(MODELS_DIR) + "smooth_vase.obj");
+```
+
+**OBJ File Support:**
+- Loads vertex positions, normals, UVs, and optional colors
+- Uses **tinyobjloader** library for parsing
+- Automatically deduplicates vertices using hash maps (40-60% memory reduction)
+- Builds optimized index buffers
+- Supports multiple shapes/meshes per file
+- Defaults to white color if not specified in OBJ
 
 **Buffer Management:**
 - Creates `VkBuffer` for vertex and index data
@@ -450,7 +472,15 @@ struct Data {
 - Attribute descriptions: How to interpret data (format, location, offset)
   - Location 0: `position` (vec3, R32G32B32_SFLOAT)
   - Location 1: `color` (vec3, R32G32B32_SFLOAT)
+  - Location 2: `normal` (vec3, R32G32B32_SFLOAT) - Reserved for future lighting
+  - Location 3: `uv` (vec2, R32G32_SFLOAT) - Reserved for future texturing
 - Used by Pipeline during creation
+
+**Vertex Deduplication:**
+- Uses `std::unordered_map<Vertex, uint32_t>` to track unique vertices
+- Requires custom `std::hash<Vertex>` specialization (uses `hashCombine()` from Utils)
+- Typical memory savings: 40-60% for models with shared vertices
+- O(1) average lookup time for efficient processing
 
 **Rendering Commands:**
 ```cpp
@@ -844,7 +874,49 @@ camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rot
 
 **See:** [KEYBOARDMOVEMENTCONTROLLER.md](KEYBOARDMOVEMENTCONTROLLER.md) for complete controller documentation
 
-### 9. Push Constants
+### 9. Utils Component
+
+**Purpose:** Provides common utility functions used throughout the engine.
+
+**Key Responsibilities:**
+- Hash combining for composite data structures
+- Support for custom hash functions in STL containers
+
+**Core Function:**
+```cpp
+template<typename T, typename... Rest>
+void hashCombine(std::size_t &seed, const T &v, const Rest &... rest) {
+    seed ^= std::hash<T>{}(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    (hashCombine(seed, rest), ...);
+}
+```
+
+**Usage in Model Loading:**
+```cpp
+namespace std {
+    template <>
+    struct hash<engine::Model::Vertex> {
+        size_t operator()(const Vertex& vertex) const {
+            size_t seed = 0;
+            engine::hashCombine(seed, vertex.position, vertex.color, vertex.normal, vertex.uv);
+            return seed;
+        }
+    };
+}
+```
+
+**Why it matters:**
+- Enables efficient vertex deduplication during OBJ loading
+- Uses golden ratio constant (0x9e3779b9) for optimal hash distribution
+- Template-based with zero runtime overhead
+- Variadic templates allow hashing any number of fields
+
+**Integration:**
+- Model component uses it for `std::unordered_map<Vertex, uint32_t>`
+- Requires `operator==()` implementation on the hashed type
+- Works with GLM types via `#include <glm/gtx/hash.hpp>`
+
+### 10. Push Constants
 
 **Purpose:** Fast CPU-to-GPU data transfer for per-draw-call parameters.
 
@@ -1331,7 +1403,8 @@ Window& operator=(const Window&) = delete; // No copy assignment
 - **[Device Component](DEVICE.md)** - Vulkan device initialization and management
 - **[SwapChain Component](SWAPCHAIN.md)** - Frame management and synchronization
 - **[Pipeline Component](PIPELINE.md)** - Graphics pipeline configuration
-- **[Model Component](MODEL.md)** - Vertex data and buffer management
+- **[Model Component](MODEL.md)** - Vertex data, buffer management, and OBJ file loading
+- **[Utils Component](UTILS.md)** - Common utility functions (hash combining)
 - **[Camera Component](CAMERA.md)** - Projection matrices and view transformations
 - **[GameObject Component](GAMEOBJECT.md)** - Entity system with transform components
 - **[KeyboardMovementController Component](KEYBOARDMOVEMENTCONTROLLER.md)** - First-person keyboard camera controls

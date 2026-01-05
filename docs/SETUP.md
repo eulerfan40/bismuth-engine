@@ -59,6 +59,7 @@ During the build process, CMake FetchContent automatically grabs:
 - volk (latest) - Vulkan meta-loader
 - GLFW (latest) - windowing
 - GLM (latest) - math library
+- tinyobjloader (release) - OBJ file loading
 
 First build: ~3 minutes \
 Later builds: ~5 seconds 

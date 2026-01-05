@@ -25,12 +25,18 @@ class Model {
 public:
     struct Vertex {
         glm::vec3 position;
+        glm::vec3 color;
         
         static std::vector<VkVertexInputBindingDescription> getBindingDescriptions();
         static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions();
     };
 
-    Model(Device& device, const std::vector<Vertex>& vertices);
+    struct Data {
+        std::vector<Vertex> vertices{};
+        std::vector<uint32_t> indices{};
+    };
+
+    Model(Device& device, const Data& data);
     ~Model();
     
     void bind(VkCommandBuffer commandBuffer);
@@ -38,11 +44,18 @@ public:
 
 private:
     void createVertexBuffers(const std::vector<Vertex>& vertices);
+    void createIndexBuffer(const std::vector<uint32_t>& indices);
     
     Device& device;
+    
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
     uint32_t vertexCount;
+    
+    bool hasIndexBuffer = false;
+    VkBuffer indexBuffer;
+    VkDeviceMemory indexBufferMemory;
+    uint32_t indexCount;
 };
 ```
 
@@ -52,16 +65,33 @@ The `Vertex` struct defines the layout of vertex data:
 
 ```cpp
 struct Vertex {
-    glm::vec3 position;  // 3D position in model/clip space
+    glm::vec3 position;  // 3D position in model space
     glm::vec3 color;     // RGB color per vertex
 };
 ```
 
 **Current attributes:**
-- `position` (vec2): 2D coordinates for triangle rendering
+- `position` (vec3): 3D coordinates for 3D rendering
 - `color` (vec3): RGB color values (0.0 to 1.0 per channel)
 
 **Future expansion:** Additional attributes like normals, texture coordinates, tangents can be added as fields in this struct.
+
+### Data Structure
+
+The `Data` struct encapsulates all geometry data for a model:
+
+```cpp
+struct Data {
+    std::vector<Vertex> vertices{};  // Vertex data with positions and colors
+    std::vector<uint32_t> indices{}; // Optional index buffer for shared vertices
+};
+```
+
+**Purpose:** Groups vertex and index data together for cleaner API and easier model construction.
+
+**Index buffer usage:**
+- **With indices:** Efficient representation of meshes with shared vertices (e.g., cube has 24 vertices instead of 36)
+- **Without indices:** Simple vertex-only rendering (empty indices vector)
 
 ---
 
@@ -70,18 +100,20 @@ struct Vertex {
 ### Constructor
 
 ```cpp
-Model::Model(Device &device, const std::vector<Vertex> &vertices) : device{device} {
-    createVertexBuffers(vertices);
+Model::Model(Device &device, const Data &data) : device{device} {
+    createVertexBuffers(data.vertices);
+    createIndexBuffer(data.indices);
 }
 ```
 
 **Parameters:**
 - `device`: Reference to the Device component (needed for buffer creation)
-- `vertices`: Vector of vertex data to upload to GPU
+- `data`: Model data containing vertices and optional indices
 
 **What it does:**
 1. Stores reference to Device
-2. Calls `createVertexBuffers()` to allocate GPU memory
+2. Calls `createVertexBuffers()` to allocate vertex buffer in GPU memory
+3. Calls `createIndexBuffer()` to optionally create index buffer (if indices provided)
 
 ### Destructor
 
@@ -89,16 +121,21 @@ Model::Model(Device &device, const std::vector<Vertex> &vertices) : device{devic
 Model::~Model() {
     vkDestroyBuffer(device.device(), vertexBuffer, nullptr);
     vkFreeMemory(device.device(), vertexBufferMemory, nullptr);
+    if (hasIndexBuffer) {
+        vkDestroyBuffer(device.device(), indexBuffer, nullptr);
+        vkFreeMemory(device.device(), indexBufferMemory, nullptr);
+    }
 }
 ```
 
 **Cleanup:**
-- Destroys the Vulkan buffer object
-- Frees the associated GPU memory
+- Destroys the vertex buffer object
+- Frees the associated vertex buffer GPU memory
+- If index buffer exists, destroys it and frees its GPU memory
 
 ---
 
-## Vertex Buffer Creation
+## Buffer Creation
 
 ### createVertexBuffers()
 
@@ -109,17 +146,32 @@ void Model::createVertexBuffers(const std::vector<Vertex> &vertices) {
 
     VkDeviceSize bufferSize = sizeof(vertices[0]) * vertexCount;
 
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+
     device.createBuffer(
         bufferSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        stagingBuffer,
+        stagingBufferMemory);
+
+    void *data;
+    vkMapMemory(device.device(), stagingBufferMemory, 0, bufferSize, 0, &data);
+    memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
+    vkUnmapMemory(device.device(), stagingBufferMemory);
+
+    device.createBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         vertexBuffer,
         vertexBufferMemory);
 
-    void *data;
-    vkMapMemory(device.device(), vertexBufferMemory, 0, bufferSize, 0, &data);
-    memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
-    vkUnmapMemory(device.device(), vertexBufferMemory);
+    device.copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+
+    vkDestroyBuffer(device.device(), stagingBuffer, nullptr);
+    vkFreeMemory(device.device(), stagingBufferMemory, nullptr);
 }
 ```
 
@@ -127,16 +179,108 @@ void Model::createVertexBuffers(const std::vector<Vertex> &vertices) {
 
 1. **Validation:** Ensures at least 3 vertices (minimum for a triangle)
 2. **Calculate size:** `sizeof(Vertex) * vertexCount`
-3. **Create buffer:** Uses Device helper to allocate GPU memory
-4. **Map memory:** Makes GPU memory accessible from CPU
-5. **Copy data:** Transfers vertex data from CPU to GPU
-6. **Unmap memory:** Releases CPU access to GPU memory
+3. **Create staging buffer:** Host-visible temporary buffer for CPU access
+4. **Map memory:** Makes staging buffer accessible from CPU
+5. **Copy data:** Transfers vertex data from CPU to staging buffer
+6. **Unmap memory:** Releases CPU access to staging buffer
+7. **Create vertex buffer:** Device-local buffer for optimal GPU performance
+8. **Copy staging → vertex:** Uses GPU command to transfer data
+9. **Cleanup:** Destroys staging buffer and frees its memory
+
+**Why staging buffers?**
+
+**Previous approach (host-visible memory):**
+- Simple: Direct CPU-to-GPU transfer
+- Slow: Host-visible memory has lower GPU access performance
+
+**Current approach (staging buffer + device-local memory):**
+- **Optimal performance:** Device-local memory provides fastest GPU access
+- **Two-step transfer:** CPU → staging buffer → device-local buffer
+- **Best practice:** Standard approach for static geometry in production engines
 
 **Memory properties:**
-- `VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT`: CPU can access this memory
-- `VK_MEMORY_PROPERTY_HOST_COHERENT_BIT`: Writes are immediately visible to GPU (no manual flush needed)
+- **Staging buffer:**
+  - `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`: Can be used as transfer source
+  - `VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT`: CPU can access
+  - `VK_MEMORY_PROPERTY_HOST_COHERENT_BIT`: No manual cache flush needed
+- **Vertex buffer:**
+  - `VK_BUFFER_USAGE_VERTEX_BUFFER_BIT`: Used as vertex buffer
+  - `VK_BUFFER_USAGE_TRANSFER_DST_BIT`: Can receive transferred data
+  - `VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT`: Fastest GPU access
 
-**Trade-off:** Host-visible memory is slower than device-local memory, but simpler for small static geometry. For larger meshes or dynamic data, consider using staging buffers to transfer data to device-local memory.
+### createIndexBuffer()
+
+```cpp
+void Model::createIndexBuffer(const std::vector<uint32_t> &indices) {
+    indexCount = static_cast<uint32_t>(indices.size());
+    hasIndexBuffer = indexCount > 0;
+
+    if (!hasIndexBuffer) return;
+
+    VkDeviceSize bufferSize = sizeof(indices[0]) * indexCount;
+
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+
+    device.createBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        stagingBuffer,
+        stagingBufferMemory);
+
+    void *data;
+    vkMapMemory(device.device(), stagingBufferMemory, 0, bufferSize, 0, &data);
+    memcpy(data, indices.data(), static_cast<size_t>(bufferSize));
+    vkUnmapMemory(device.device(), stagingBufferMemory);
+
+    device.createBuffer(
+        bufferSize,
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        indexBuffer,
+        indexBufferMemory);
+
+    device.copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+
+    vkDestroyBuffer(device.device(), stagingBuffer, nullptr);
+    vkFreeMemory(device.device(), stagingBufferMemory, nullptr);
+}
+```
+
+**Purpose:** Creates an optional index buffer for indexed rendering.
+
+**Steps:**
+
+1. **Count indices:** Store index count and set `hasIndexBuffer` flag
+2. **Early return:** If no indices provided, skip index buffer creation
+3. **Calculate size:** `sizeof(uint32_t) * indexCount`
+4. **Create staging buffer:** Host-visible temporary buffer
+5. **Map and copy:** Transfer index data from CPU to staging buffer
+6. **Create index buffer:** Device-local buffer for optimal GPU performance
+7. **Copy staging → index:** GPU-based transfer for efficiency
+8. **Cleanup:** Destroy staging buffer
+
+**Why index buffers?**
+
+**Without indices (before):**
+```cpp
+// Cube requires 36 vertices (6 faces × 2 triangles × 3 vertices)
+std::vector<Vertex> vertices(36);  // Many duplicate vertices
+```
+
+**With indices (after):**
+```cpp
+// Cube requires only 24 unique vertices (4 per face × 6 faces)
+std::vector<Vertex> vertices(24);    // Unique vertices only
+std::vector<uint32_t> indices(36);   // References to vertices
+```
+
+**Benefits:**
+- **Memory savings:** 24 vertices vs 36 vertices (33% reduction for cubes)
+- **Cache efficiency:** GPU can reuse recently processed vertices
+- **Standard practice:** All modern 3D models use indexed geometry
+- **Flexibility:** Can represent complex meshes efficiently
 
 ---
 
@@ -218,51 +362,102 @@ void Model::bind(VkCommandBuffer commandBuffer) {
     VkBuffer buffers[] = {vertexBuffer};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
+
+    if (hasIndexBuffer) {
+        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+    }
 }
 ```
 
 **What it does:**
 - Binds the vertex buffer to binding point 0
 - Sets offset to 0 (start at beginning of buffer)
+- If model has index buffer, binds it with `VK_INDEX_TYPE_UINT32`
 
 **Must be called:** After binding the pipeline, before drawing.
+
+**Index type:** Currently uses `VK_INDEX_TYPE_UINT32` for all indexed models. Future optimization could use `VK_INDEX_TYPE_UINT16` for models with fewer than 65,536 vertices.
 
 ### draw()
 
 ```cpp
 void Model::draw(VkCommandBuffer commandBuffer) {
-    vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
+    if (hasIndexBuffer) {
+        vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
+    } else {
+        vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
+    }
 }
 ```
 
-**Parameters:**
+**Behavior depends on index buffer presence:**
+
+**Indexed drawing (`vkCmdDrawIndexed`):**
+- `indexCount`: Number of indices to draw
+- `instanceCount = 1`: Not using instancing
+- `firstIndex = 0`: Start at index 0
+- `vertexOffset = 0`: Base vertex offset
+- `firstInstance = 0`: Start at instance 0
+
+**Non-indexed drawing (`vkCmdDraw`):**
 - `vertexCount`: Number of vertices to draw
 - `instanceCount = 1`: Not using instancing
 - `firstVertex = 0`: Start at vertex 0
 - `firstInstance = 0`: Start at instance 0
 
-**Result:** Issues a draw call for all vertices in the buffer.
+**Result:** Issues appropriate draw call based on whether model uses indices.
 
 ---
 
 ## Usage Example
 
-### Loading a Triangle with Colors
+### Loading a Cube with Index Buffer
 
 ```cpp
-void FirstApp::loadModels() {
-    std::vector<Model::Vertex> vertices {
-        {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},   // Top vertex (red)
-        {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},    // Bottom-right vertex (green)
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}    // Bottom-left vertex (blue)
+void FirstApp::loadGameObjects() {
+    Model::Data modelData{};
+    modelData.vertices = {
+        // left face (white)
+        {{-.5f, -.5f, -.5f}, {.9f, .9f, .9f}},
+        {{-.5f, .5f, .5f}, {.9f, .9f, .9f}},
+        {{-.5f, -.5f, .5f}, {.9f, .9f, .9f}},
+        {{-.5f, .5f, -.5f}, {.9f, .9f, .9f}},
+        
+        // right face (yellow)
+        {{.5f, -.5f, -.5f}, {.8f, .8f, .1f}},
+        {{.5f, .5f, .5f}, {.8f, .8f, .1f}},
+        {{.5f, -.5f, .5f}, {.8f, .8f, .1f}},
+        {{.5f, .5f, -.5f}, {.8f, .8f, .1f}},
+        
+        // Additional faces...
+    };
+    
+    // Apply offset to all vertices
+    for (auto &v: modelData.vertices) {
+        v.position += offset;
+    }
+    
+    modelData.indices = {
+        0, 1, 2, 0, 3, 1,      // left face (2 triangles)
+        4, 5, 6, 4, 7, 5,      // right face
+        8, 9, 10, 8, 11, 9,    // top face
+        12, 13, 14, 12, 15, 13, // bottom face
+        16, 17, 18, 16, 19, 17, // front face
+        20, 21, 22, 20, 23, 21  // back face
     };
 
-    model = std::make_unique<Model>(device, vertices);
+    model = std::make_unique<Model>(device, modelData);
 }
 ```
 
+**Key changes from non-indexed approach:**
+- **24 unique vertices** instead of 36 duplicated vertices
+- **36 indices** reference the unique vertices to form 12 triangles
+- **Memory efficient:** Each vertex stored once, referenced multiple times
+- **Cache friendly:** GPU can reuse transformed vertices
+
 **Color Interpolation:**
-The GPU automatically interpolates colors across the triangle surface. With red, green, and blue at the vertices, the center of the triangle will be a blend of all three colors (appearing grayish), and edges will smoothly transition between adjacent vertex colors.
+The GPU automatically interpolates colors across the triangle surface. Each face has a single color at all vertices, creating solid-colored faces. The interpolation system still works, but produces uniform colors per face.
 
 ### Rendering Loop
 
@@ -291,25 +486,31 @@ void FirstApp::createCommandBuffers() {
 
 ## Design Decisions
 
-### Why Host-Visible Memory?
+### Why Device-Local Memory with Staging Buffers?
 
-**Current approach:** `VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT`
+**Current approach:** Staging buffer + device-local memory
+
+**Process:**
+1. Create host-visible staging buffer
+2. Copy data from CPU to staging buffer
+3. Create device-local vertex/index buffer
+4. Use GPU command buffer to copy staging → final buffer
+5. Destroy staging buffer
 
 **Pros:**
-- Simple: Direct CPU-to-GPU transfer
-- Fine for small, static meshes (like our cube)
-- No staging buffer needed
+- **Optimal GPU performance:** Device-local memory is fastest for GPU reads
+- **Industry standard:** Used by all production game engines
+- **Scales well:** Works for meshes of any size
 
 **Cons:**
-- Slower GPU access than device-local memory
-- Not suitable for large or dynamic geometry
+- More complex than direct host-visible approach
+- Requires command buffer submission for copy operation
+- Temporary staging buffer overhead (cleaned up immediately)
 
-**Future improvement:** Use staging buffers for device-local memory transfers:
-1. Create host-visible staging buffer
-2. Copy data to staging buffer
-3. Create device-local vertex buffer
-4. Use command buffer to copy staging → vertex buffer
-5. Destroy staging buffer
+**Previous approach (host-visible memory):**
+- Simple: Direct CPU-to-GPU transfer
+- Slower: Host-visible memory has lower GPU access performance
+- Acceptable only for very small, static meshes
 
 ### Why Static Descriptor Methods?
 
@@ -434,37 +635,47 @@ struct Vertex {
 - Use `offsetof(Vertex, fieldName)` for correct byte offsets
 - Consider struct alignment and padding
 
-### 2. Index Buffers
+### 2. Index Buffer Optimizations
 
-**Problem:** Meshes have shared vertices (e.g., cube has 8 vertices, but 36 vertex references for 12 triangles)
+**Current implementation:** Uses `VK_INDEX_TYPE_UINT32` for all models
 
-**Solution:** Add index buffer support
+**Future optimization:** Dynamic index type selection
 ```cpp
-std::vector<uint32_t> indices;  // Vertex indices
-VkBuffer indexBuffer;
-VkDeviceMemory indexBufferMemory;
-
-void drawIndexed(VkCommandBuffer commandBuffer);
+// Choose index type based on vertex count
+VkIndexType indexType = vertexCount > 65535 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
 ```
 
-### 3. Device-Local Memory
+**Benefits:**
+- **Memory savings:** 16-bit indices use half the memory for small models
+- **Cache efficiency:** More indices fit in GPU cache
+- **Requires refactoring:** Model class would need to support both uint16_t and uint32_t index vectors
 
-For better performance:
+### 3. Vertex Buffer Updates
+
+For animated or procedural geometry:
 ```cpp
-void createVertexBuffers(const std::vector<Vertex>& vertices) {
-    // Create staging buffer (host-visible)
-    // Create vertex buffer (device-local)
-    // Copy staging → vertex buffer via command buffer
-    // Destroy staging buffer
+void updateVertexBuffer(const std::vector<Vertex>& vertices) {
+    // Map device memory
+    // Copy new vertex data
+    // Unmap memory
 }
 ```
 
-### 4. Dynamic Vertex Data
+**Note:** Would require switching back to host-visible memory, or implementing a double-buffered approach with staging buffers per frame.
 
-For animated or procedural geometry:
-- Use `VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT` without staging
-- Implement `updateVertexBuffer()` method
-- Map/copy/unmap on each frame (or when data changes)
+### 4. Model Loading from Files
+
+Future file format support:
+```cpp
+class Model {
+    static std::unique_ptr<Model> createFromFile(Device& device, const std::string& filepath);
+};
+```
+
+**Supported formats:**
+- OBJ: Simple text-based format
+- GLTF: Modern, feature-rich format with PBR support
+- Binary formats for faster loading
 
 ### 5. Multiple Meshes
 

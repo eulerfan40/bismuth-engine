@@ -405,63 +405,103 @@ void FirstApp::run() {
 
 ### 6. Model System
 
-**Purpose:** Manages vertex data and vertex buffers for rendering geometry.
+**Purpose:** Manages vertex data, index buffers, and GPU memory for rendering geometry efficiently.
 
 **Key Responsibilities:**
-- Store vertex data in GPU memory
+- Store vertex data in device-local GPU memory
+- Manage optional index buffers for shared vertices
+- Use staging buffers for optimal memory transfer
 - Define vertex input layout (binding and attribute descriptions)
-- Bind vertex buffers to command buffers
-- Issue draw commands
+- Bind vertex and index buffers to command buffers
+- Issue indexed or non-indexed draw commands
 
-**Vertex Structure:**
+**Data Structures:**
 ```cpp
 struct Vertex {
-    glm::vec2 position;  // 2D position
+    glm::vec3 position;  // 3D position
     glm::vec3 color;     // RGB color per vertex
+};
+
+struct Data {
+    std::vector<Vertex> vertices{};   // Vertex data
+    std::vector<uint32_t> indices{};  // Optional index buffer
 };
 ```
 
 **Buffer Management:**
-- Creates `VkBuffer` for vertex data
-- Allocates `VkDeviceMemory` (host-visible, coherent)
-- Maps memory, copies data, unmaps
+- Creates `VkBuffer` for vertex and index data
+- Uses **staging buffers** for efficient CPU→GPU transfer:
+  1. Create host-visible staging buffer
+  2. Copy data from CPU to staging buffer
+  3. Create device-local final buffer
+  4. GPU copies staging → final buffer
+  5. Destroy staging buffer
+- Allocates `VkDeviceMemory` (device-local for optimal GPU performance)
 - RAII cleanup in destructor
+
+**Index Buffer Support:**
+- **Optional:** Models can use indexed or non-indexed rendering
+- **Memory efficient:** Cube uses 24 vertices (indexed) vs 36 vertices (non-indexed)
+- **Cache friendly:** GPU can reuse recently transformed vertices
+- **Standard practice:** All modern 3D models use indexed geometry
 
 **Vertex Input Descriptors:**
 - Binding descriptions: How to read buffer (stride, input rate)
 - Attribute descriptions: How to interpret data (format, location, offset)
-  - Location 0: `position` (vec2, R32G32_SFLOAT)
+  - Location 0: `position` (vec3, R32G32B32_SFLOAT)
   - Location 1: `color` (vec3, R32G32B32_SFLOAT)
 - Used by Pipeline during creation
 
 **Rendering Commands:**
 ```cpp
-model->bind(commandBuffer);   // Bind vertex buffer
-model->draw(commandBuffer);   // Issue draw call
+model->bind(commandBuffer);   // Bind vertex buffer (and index buffer if present)
+model->draw(commandBuffer);   // Issue indexed or non-indexed draw call
 ```
 
-**Design Decision: Hardcoded Vertices → Vertex Buffers**
+**Design Decision: Host-Visible → Device-Local Memory**
 
-Previously, vertex positions were hardcoded in the vertex shader:
-```glsl
-vec2 positions[3] = vec2[](vec2(0.0, -0.5), vec2(0.5, 0.5), vec2(-0.5, 0.5));
-gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-```
-
-Now, vertices are loaded from CPU and passed via vertex buffers:
+Previously, buffers used host-visible memory:
 ```cpp
-std::vector<Model::Vertex> vertices {
-    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},  // Red
-    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},   // Green
-    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}   // Blue
-};
-model = std::make_unique<Model>(device, vertices);
+// Old approach: Direct CPU access, slower GPU reads
+device.createBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, ...);
+```
+
+Now, buffers use device-local memory with staging:
+```cpp
+// New approach: Staging buffer → device-local memory (optimal GPU performance)
+// 1. Create staging buffer (host-visible)
+// 2. CPU writes to staging buffer
+// 3. GPU copies staging → device-local buffer
+// 4. Destroy staging buffer
 ```
 
 **Why this change?**
-- **Flexibility:** Load geometry and colors from files, not hardcoded
-- **Scalability:** Multiple models can share shaders
-- **Industry standard:** Proper 3D engines use vertex buffers with attributes
+- **Performance:** Device-local memory provides fastest GPU access
+- **Industry standard:** All production engines use staging buffers
+- **Scalability:** Works efficiently for meshes of any size
+
+**Index Buffer Implementation:**
+
+Without indices (old approach):
+```cpp
+// 36 vertices with duplicates
+std::vector<Model::Vertex> vertices(36);
+```
+
+With indices (current approach):
+```cpp
+// 24 unique vertices + 36 indices
+Model::Data modelData{};
+modelData.vertices = { /* 24 unique vertices */ };
+modelData.indices = {0, 1, 2, 0, 3, 1, ...};  // References to vertices
+model = std::make_unique<Model>(device, modelData);
+```
+
+**Benefits:**
+- 33% memory reduction for cubes
+- Better GPU vertex cache utilization
+- Standard approach for all 3D assets
 
 **Color Interpolation:**
 Per-vertex colors are automatically interpolated across triangle faces by the GPU rasterizer. The vertex shader outputs colors, which are then smoothly blended between vertices during rasterization, and the fragment shader receives the interpolated color for each pixel. This creates smooth color gradients without additional computation.

@@ -19,7 +19,8 @@ Bismuth Engine is a cross-platform 3D game engine written in C++ and Vulkan.
 - ✅ **Camera system** - Projection matrices (perspective/orthographic) and view transformations
 - ✅ **Camera view control** - Position and orient camera with setViewTarget, setViewDirection, and setViewYXZ
 - ✅ **Interactive camera control** - Keyboard-based first-person camera with WASD movement and arrow key look controls
-- ✅ Vertex buffer management with position and color attributes
+- ✅ **Vertex buffer management** - Device-local memory with staging buffers for optimal GPU performance
+- ✅ **Index buffer support** - Efficient indexed rendering with shared vertices (33% memory reduction for cubes)
 - ✅ GameObject system with component-based architecture
 - ✅ **3D transformations** - mat4 with scale, rotation (Euler angles), and translation
 - ✅ Push constants for dynamic per-draw-call transformations

@@ -21,23 +21,27 @@ The `KeyboardMovementController` class provides keyboard-based camera and GameOb
 namespace engine {
   class KeyboardMovementController {
   public:
+    const float DEFAULT_MOVE_SPEED = 3.0f;
+    const float SLOW_MOVE_SPEED = 1.0f;
+
     struct KeyMappings {
         int moveLeft = GLFW_KEY_A;
         int moveRight = GLFW_KEY_D;
         int moveForward = GLFW_KEY_W;
         int moveBackward = GLFW_KEY_S;
-        int moveUp = GLFW_KEY_E;
-        int moveDown = GLFW_KEY_Q;
+        int moveUp = GLFW_KEY_SPACE;
+        int moveDown = GLFW_KEY_LEFT_CONTROL;
         int lookLeft = GLFW_KEY_LEFT;
         int lookRight = GLFW_KEY_RIGHT;
         int lookUp = GLFW_KEY_UP;
         int lookDown = GLFW_KEY_DOWN;
+        int slowDown = GLFW_KEY_LEFT_SHIFT;
     };
 
     void moveInPlaneXZ(GLFWwindow* window, float dt, GameObject& gameObject);
 
     KeyMappings keys{};
-    float moveSpeed{3.0f};
+    float moveSpeed{DEFAULT_MOVE_SPEED};
     float lookSpeed{1.5f};
   };
 }
@@ -69,12 +73,13 @@ Defines the keyboard bindings for all movement and look controls.
 | Move Backward | S | `GLFW_KEY_S` |
 | Move Left | A | `GLFW_KEY_A` |
 | Move Right | D | `GLFW_KEY_D` |
-| Move Up | E | `GLFW_KEY_E` |
-| Move Down | Q | `GLFW_KEY_Q` |
+| Move Up | Space | `GLFW_KEY_SPACE` |
+| Move Down | Left Ctrl | `GLFW_KEY_LEFT_CONTROL` |
 | Look Left | Left Arrow | `GLFW_KEY_LEFT` |
 | Look Right | Right Arrow | `GLFW_KEY_RIGHT` |
 | Look Up | Up Arrow | `GLFW_KEY_UP` |
 | Look Down | Down Arrow | `GLFW_KEY_DOWN` |
+| Slow Movement | Left Shift | `GLFW_KEY_LEFT_SHIFT` |
 
 **Customization:**
 ```cpp
@@ -87,11 +92,20 @@ controller.keys.moveRight = GLFW_KEY_RIGHT;   // Change D to Right Arrow
 
 ### Movement Speed
 
-Controls the rate of translation movement in world units per second.
+Controls the rate of translation movement in world units per second. The controller now includes built-in speed constants and dynamic speed adjustment via the slow movement modifier key.
 
 **Type:** `float`  
-**Default:** `3.0f`  
+**Default:** `DEFAULT_MOVE_SPEED` (3.0f)  
 **Units:** World units per second
+
+**Speed Constants:**
+- `DEFAULT_MOVE_SPEED`: `3.0f` - Normal movement speed
+- `SLOW_MOVE_SPEED`: `1.0f` - Precision/slow movement speed
+
+**Dynamic Speed Control:**
+The controller automatically adjusts `moveSpeed` based on the slow movement key (default: Left Shift):
+- **Normal:** `moveSpeed = DEFAULT_MOVE_SPEED` (3.0f)
+- **Slow mode (Shift held):** `moveSpeed = SLOW_MOVE_SPEED` (1.0f)
 
 **Tuning Guidelines:**
 - **Slow exploration:** `1.0f - 2.0f`
@@ -100,7 +114,12 @@ Controls the rate of translation movement in world units per second.
 - **Flying/debugging:** `10.0f+`
 
 ```cpp
+// Manual speed adjustment (still supported)
 controller.moveSpeed = 5.0f; // Faster movement
+
+// Customize speed constants
+controller.DEFAULT_MOVE_SPEED = 5.0f;
+controller.SLOW_MOVE_SPEED = 2.0f;
 ```
 
 ### Look Speed
@@ -151,7 +170,8 @@ void moveInPlaneXZ(GLFWwindow* window, float dt, GameObject& gameObject);
 
 2. **Movement Processing:**
    - Calculates forward, right, and up direction vectors from current yaw
-   - Polls WASD/EQ keys for movement input
+   - Polls WASD/Space/Ctrl keys for movement input
+   - Checks slow movement modifier key (default: Left Shift) and adjusts `moveSpeed` dynamically
    - Accumulates movement in local space
    - Normalizes movement vector if magnitude > epsilon
    - Applies movement at `moveSpeed * dt` to `gameObject.transform.translation`
@@ -239,32 +259,45 @@ controller.keys.lookRight = GLFW_KEY_L;
 controller.keys.lookUp = GLFW_KEY_I;
 controller.keys.lookDown = GLFW_KEY_K;
 
-// Space/Shift for vertical movement
+// Space/Alt for vertical movement (Shift is slow modifier by default)
 controller.keys.moveUp = GLFW_KEY_SPACE;
-controller.keys.moveDown = GLFW_KEY_LEFT_SHIFT;
+controller.keys.moveDown = GLFW_KEY_LEFT_ALT;
 ```
 
-### Adjustable Movement Parameters
+### Built-in Slow Movement Modifier
 
-Provide dynamic speed control for different gameplay contexts.
+The controller now includes automatic speed adjustment via a modifier key (default: Left Shift).
 
 ```cpp
 KeyboardMovementController controller{};
 
-// Exploration mode
-controller.moveSpeed = 2.0f;
+// Slow movement is built-in - just hold the slowDown key
+// Default: Hold Left Shift while moving for precision control
+// moveSpeed automatically switches between DEFAULT_MOVE_SPEED and SLOW_MOVE_SPEED
+
+// Customize slow speed threshold
+controller.SLOW_MOVE_SPEED = 0.5f;  // Even slower for very precise movement
+
+// Change the modifier key
+controller.keys.slowDown = GLFW_KEY_LEFT_ALT;  // Use Alt instead of Shift
+```
+
+### Custom Speed Modes
+
+You can still implement additional speed modes for special gameplay contexts.
+
+```cpp
+KeyboardMovementController controller{};
+
+// Exploration mode - adjust base speeds
+controller.DEFAULT_MOVE_SPEED = 2.0f;
 controller.lookSpeed = 1.0f;
 
-// Fast travel mode (shift to run)
-if (glfwGetKey(window.getGLFWwindow(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-  controller.moveSpeed = 10.0f;
+// Sprint mode - manual override (in addition to built-in slow mode)
+if (glfwGetKey(window.getGLFWwindow(), GLFW_KEY_LEFT_ALT) == GLFW_PRESS) {
+  controller.moveSpeed = 10.0f;  // Sprint speed
 }
-
-// Precision mode (ctrl for fine control)
-if (glfwGetKey(window.getGLFWwindow(), GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) {
-  controller.moveSpeed = 0.5f;
-  controller.lookSpeed = 0.5f;
-}
+// Note: Built-in slow modifier will override this if slowDown key is pressed
 ```
 
 ### Controlling Multiple Objects
@@ -686,15 +719,20 @@ private:
 };
 ```
 
-### Sprint/Crouch Modifiers
+### Enhanced Speed Modifiers
 
 ```cpp
 class KeyboardMovementController {
 public:
-  int sprintKey = GLFW_KEY_LEFT_SHIFT;
-  int crouchKey = GLFW_KEY_LEFT_CONTROL;
+  // Already implemented: slowDown key for precision movement
+  // Future: Add sprint key as complement to slow movement
+  int sprintKey = GLFW_KEY_LEFT_ALT;
   float sprintMultiplier = 2.0f;
-  float crouchMultiplier = 0.5f;
+  
+  // Current implementation uses:
+  // - DEFAULT_MOVE_SPEED for normal movement
+  // - SLOW_MOVE_SPEED when slowDown key pressed
+  // Could extend to SPRINT_MOVE_SPEED when sprintKey pressed
 };
 ```
 

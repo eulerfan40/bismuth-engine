@@ -1000,6 +1000,10 @@ void FirstApp::run() {
         ).count();
         currentTime = newTime;
         
+        // Clamp frame time to prevent huge jumps (window drag, breakpoints, etc.)
+        const float MAX_FRAME_TIME = 1.0f;
+        frameTime = glm::min(frameTime, MAX_FRAME_TIME);
+        
         // Update viewer position and rotation based on keyboard input
         cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
         
@@ -1026,7 +1030,9 @@ void FirstApp::run() {
 **Controls:**
 - **W/S** - Move forward/backward in the direction you're looking
 - **A/D** - Strafe left/right perpendicular to view direction
-- **E/Q** - Move up/down in world space
+- **Space** - Move up in world space
+- **Left Ctrl** - Move down in world space
+- **Left Shift** - Slow movement modifier (precision control)
 - **Arrow Keys** - Rotate camera (pitch and yaw)
 
 **Key Design Points:**

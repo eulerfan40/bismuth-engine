@@ -14,15 +14,19 @@
 #include <stdexcept>
 #include <chrono>
 #include <array>
+#include <iostream>
 
 namespace engine {
   FirstApp::FirstApp() {
     loadGameObjects();
   }
 
-  FirstApp::~FirstApp() {  }
+  FirstApp::~FirstApp() {
+  }
 
   void FirstApp::run() {
+    const float MAX_FRAME_TIME = 1.0f;
+
     SimpleRenderSystem simpleRenderSystem{device, renderer.getSwapChainRenderPass()};
     Camera camera{};
 
@@ -37,6 +41,8 @@ namespace engine {
       auto newTime = std::chrono::high_resolution_clock::now();
       float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(newTime - currentTime).count();
       currentTime = newTime;
+
+      frameTime = glm::min(frameTime, MAX_FRAME_TIME);
 
       cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
       camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rotation);
@@ -125,4 +131,3 @@ namespace engine {
     gameObjects.push_back(std::move(cube));
   }
 }
-

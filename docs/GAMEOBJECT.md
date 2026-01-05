@@ -683,6 +683,10 @@ void FirstApp::run() {
         ).count();
         currentTime = newTime;
         
+        // Clamp frame time to prevent huge jumps (window drag, breakpoints, etc.)
+        const float MAX_FRAME_TIME = 1.0f;
+        frameTime = glm::min(frameTime, MAX_FRAME_TIME);
+        
         // Update viewer GameObject based on keyboard input
         cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
         

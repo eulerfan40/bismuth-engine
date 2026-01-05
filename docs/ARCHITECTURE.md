@@ -252,6 +252,7 @@ Camera camera{};
 auto viewerObject = GameObject::createGameObject();
 KeyboardMovementController cameraController{};
 
+const float MAX_FRAME_TIME = 1.0f;  // Cap at 1 second to prevent huge jumps
 auto currentTime = std::chrono::high_resolution_clock::now();
 
 while (!window.shouldClose()) {
@@ -263,6 +264,9 @@ while (!window.shouldClose()) {
         newTime - currentTime
     ).count();
     currentTime = newTime;
+    
+    // Clamp frame time to prevent huge jumps (e.g., during window drag, breakpoints)
+    frameTime = glm::min(frameTime, MAX_FRAME_TIME);
     
     // Update camera position/rotation based on keyboard input
     cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
@@ -709,13 +713,13 @@ Screen Space (pixels)
 
 **Control Scheme:**
 ```
-Movement:               Look:
-W - Forward            ↑ - Look Up
-S - Backward           ↓ - Look Down
-A - Strafe Left        ← - Look Left
-D - Strafe Right       → - Look Right
-E - Move Up
-Q - Move Down
+Movement:                Look:                 Modifier:
+W - Forward             ↑ - Look Up           Left Shift - Slow Movement
+S - Backward            ↓ - Look Down
+A - Strafe Left         ← - Look Left
+D - Strafe Right        → - Look Right
+Space - Move Up
+Left Ctrl - Move Down
 ```
 
 **Implementation Pattern:**
@@ -734,10 +738,14 @@ auto newTime = std::chrono::high_resolution_clock::now();
 float frameTime = std::chrono::duration<float>(newTime - currentTime).count();
 currentTime = newTime;
 
-// 2. Update viewer based on keyboard input
+// 2. Clamp frame time to prevent huge jumps (window drag, breakpoints, etc.)
+const float MAX_FRAME_TIME = 1.0f;
+frameTime = glm::min(frameTime, MAX_FRAME_TIME);
+
+// 3. Update viewer based on keyboard input
 cameraController.moveInPlaneXZ(window.getGLFWwindow(), frameTime, viewerObject);
 
-// 3. Apply viewer transform to camera
+// 4. Apply viewer transform to camera
 camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rotation);
 ```
 
@@ -755,12 +763,33 @@ camera.setViewYXZ(viewerObject.transform.translation, viewerObject.transform.rot
    ```
    Result: Same movement speed at 30 FPS or 240 FPS.
 
-3. **Rotation Clamping:** Pitch limited to ±85° to prevent gimbal lock:
+3. **Frame Time Clamping:** Delta time is clamped to prevent extreme values:
+   ```cpp
+   const float MAX_FRAME_TIME = 1.0f;  // 1 second maximum
+   frameTime = glm::min(frameTime, MAX_FRAME_TIME);
+   ```
+   **Why?** Prevents huge camera jumps when:
+   - Window is dragged (OS pauses rendering)
+   - Debugger breakpoint hit (time keeps accumulating)
+   - Application loses focus (frame skips)
+   - Initial frame after loading (large dt spike)
+   
+   Without clamping, a 5-second pause could teleport the camera across the scene.
+
+4. **Dynamic Speed Control:** Built-in slow movement modifier:
+   ```cpp
+   // Default: 3.0 units/sec, Slow mode (Shift): 1.0 units/sec
+   moveSpeed = DEFAULT_MOVE_SPEED;
+   if (slowDown key pressed) moveSpeed = SLOW_MOVE_SPEED;
+   ```
+   Enables precision movement without manual speed adjustment.
+
+5. **Rotation Clamping:** Pitch limited to ±85° to prevent gimbal lock:
    ```cpp
    rotation.x = glm::clamp(rotation.x, -1.5f, 1.5f);
    ```
 
-4. **Local-Space Movement:** Forward/backward/strafe relative to camera's yaw:
+6. **Local-Space Movement:** Forward/backward/strafe relative to camera's yaw:
    ```cpp
    float yaw = rotation.y;
    glm::vec3 forwardDir{sin(yaw), 0.0f, cos(yaw)};

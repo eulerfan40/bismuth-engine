@@ -67,7 +67,7 @@ namespace engine {
 
     auto gameObject = GameObject::createGameObject();
     gameObject.model = model;
-    gameObject.transform.translation = {0.0f, 0.0f, 2.5f};
+    gameObject.transform.translation = {0.0f, 0.5f, 2.5f};
     gameObject.transform.scale = glm::vec3(3.0f);
 
     std::shared_ptr<Model> model2 = Model::createModelFromFile(
@@ -75,11 +75,30 @@ namespace engine {
 
     auto gameObject1 = GameObject::createGameObject();
     gameObject1.model = model2;
-    gameObject1.transform.translation = {2.0f, 0.0f, 2.5f};
-    gameObject1.transform.rotation = {0.0f, 0.0f, glm::radians(90.0f)};
+    gameObject1.transform.translation = {2.0f, 0.5f, 2.5f};
+    gameObject1.transform.rotation = {glm::radians(90.0f), 0.0f, 0.0f};
     gameObject1.transform.scale = glm::vec3(0.0175f);
+
+    std::shared_ptr<Model> model3 = Model::createModelFromFile(
+       device, std::string(MODELS_DIR) + "flat_vase.obj");
+
+    auto gameObject2 = GameObject::createGameObject();
+    gameObject2.model = model3;
+    gameObject2.transform.translation = {-2.0f, 0.5f, 2.5f};
+    gameObject2.transform.scale = {6.0f, 3.0f, 3.0f};
+
+    std::shared_ptr<Model> model4 = Model::createModelFromFile(
+       device, std::string(MODELS_DIR) + "unicorn.obj");
+
+    auto gameObject3 = GameObject::createGameObject();
+    gameObject3.model = model4;
+    gameObject3.transform.translation = {4.0f, 0.5f, 2.5f};
+    gameObject3.transform.rotation = {glm::radians(90.0f), 0.0f, 0.0f};
+    gameObject3.transform.scale = glm::vec3(0.03f);
 
     gameObjects.push_back(std::move(gameObject));
     gameObjects.push_back(std::move(gameObject1));
+    gameObjects.push_back(std::move(gameObject2));
+    gameObjects.push_back(std::move(gameObject3));
   }
 }

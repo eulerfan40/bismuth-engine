@@ -79,57 +79,58 @@ void main () {
 ```glsl
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 color;
+layout(location = 2) in vec3 normal;
+layout(location = 3) in vec2 uv;
 ```
 
 | Location | Type | Source | Purpose |
 |----------|------|--------|---------|
 | 0 | `vec3` | Vertex buffer | 3D position (x, y, z) |
 | 1 | `vec3` | Vertex buffer | RGB color (per-vertex) |
+| 2 | `vec3` | Vertex buffer | Surface normal for lighting |
+| 3 | `vec2` | Vertex buffer | Texture coordinates (currently unused) |
 
 **Matching CPU Side:**
 
 ```cpp
 // In Model.hpp
 static std::vector<VkVertexInputAttributeDescription> Vertex::getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(2);
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
     
-    attributeDescriptions[0].binding = 0;
-    attributeDescriptions[0].location = 0;  // Matches shader location 0
-    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;  // vec3
-    attributeDescriptions[0].offset = offsetof(Vertex, position);
-    
-    attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1;  // Matches shader location 1
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;  // vec3
-    attributeDescriptions[1].offset = offsetof(Vertex, color);
+    attributeDescriptions.push_back({0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)});
+    attributeDescriptions.push_back({1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)});
+    attributeDescriptions.push_back({2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)});
+    attributeDescriptions.push_back({3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)});
     
     return attributeDescriptions;
 }
 ```
 
-**Usage:** The `color` input attribute provides per-vertex colors, enabling smooth color gradients across faces.
+**Usage:** 
+- `position`: Vertex coordinates for geometry
+- `color`: Per-vertex colors for surface appearance
+- `normal`: Surface normals for diffuse lighting calculations (Gouraud shading)
+- `uv`: Texture coordinates (reserved for future texturing system)
 
 ### Push Constants
 
 ```glsl
 layout(push_constant) uniform Push {
-  mat4 transform;
-  vec3 color;
+  mat4 transform;      // projection * view * model
+  mat4 normalMatrix;
 } push;
 ```
 
-**Purpose:** Fast, per-draw-call data from CPU to GPU.
+**Purpose:** Fast, per-draw-call data from CPU to GPU for rendering and lighting.
 
-**Access:** `push.transform`, `push.color`
-
-**Note:** The `color` field in push constants is currently unused in the vertex shader - per-vertex colors from the vertex buffer are passed through instead.
+**Access:** `push.transform`, `push.normalMatrix`
 
 **CPU Side Declaration:**
 
 ```cpp
 struct SimplePushConstantData {
-  glm::mat4 transform{1.f};     // Identity matrix by default
-  alignas(16) glm::vec3 color;  // Alignment requirement (unused in current implementation)
+  glm::mat4 transform{1.f};      // Projection * View * Model
+  glm::mat4 normalMatrix{1.f};   // Normal transformation matrix
 };
 ```
 
@@ -137,28 +138,63 @@ struct SimplePushConstantData {
 
 | Field | Type | Size | Purpose |
 |-------|------|------|---------|
-| `transform` | `mat4` | 64 bytes | 4×4 transformation matrix (scale, rotation, translation) |
-| `color` | `vec3` | 12 bytes (aligned to 16) | RGB color (unused - vertex colors used instead) |
+| `transform` | `mat4` | 64 bytes | Combined projection-view-model transformation matrix |
+| `normalMatrix` | `mat4` | 64 bytes | Normal transformation for lighting (stored as mat4 for alignment) |
 
-**Why `alignas(16)` for vec3?**
-- GLSL std140 layout rules require vec3 to be aligned to 16 bytes
-- Without alignment: GPU reads wrong memory location
-- Causes visual glitches or validation errors
+**Note:** `normalMatrix` is stored as `mat4` in push constants but only the upper-left 3×3 portion is used in the shader. This ensures proper alignment and avoids padding issues.
 
-**Total Size:** 80 bytes (well within 128-byte minimum limit)
+**Total Size:** 128 bytes (at the minimum guaranteed limit)
 
 See [Push Constants](#push-constants) section for complete details.
 
-### Output
+### Lighting Constants
 
 ```glsl
-gl_Position = push.transform * vec4(position, 1.0);
-fragColor = color;
+const vec3 DIRECTION_TO_LIGHT = normalize(vec3(1.0, -3.0, -1.0));
+const float AMBIENT = 0.02;
+```
+
+**`DIRECTION_TO_LIGHT`:** Normalized direction vector pointing toward the light source.
+- This is a directional light (like the sun)
+- Direction: coming from upper-right-front, pointing down-left-back
+- Normalized for consistent lighting calculations
+
+**`AMBIENT`:** Minimum light level (0.02 = 2% brightness).
+- Prevents completely black surfaces
+- Simulates ambient/indirect lighting
+- Without ambient, surfaces facing away from light would be pitch black
+
+### Output and Lighting Calculation
+
+```glsl
+// Executed once per vertex
+void main() {
+    gl_Position = push.transform * vec4(position, 1.0);
+    
+    vec3 normalWorldSpace = normalize(mat3(push.normalMatrix) * normal);
+    
+    float lightIntensity = AMBIENT + max(dot(normalWorldSpace, DIRECTION_TO_LIGHT), 0);
+    
+    fragColor = lightIntensity * color;
+}
 ```
 
 **`gl_Position`:** Built-in output variable (vec4) - final vertex position in clip space
 
-**`fragColor`:** User-defined output variable (vec3) - passed to fragment shader
+**`normalWorldSpace`:** Transformed normal vector in world space
+- Extract 3×3 from normalMatrix (rotation + inverse scale)
+- Transform model-space normal to world space
+- Normalize to ensure unit length
+
+**`lightIntensity`:** Combined ambient + diffuse lighting
+- `dot(normalWorldSpace, DIRECTION_TO_LIGHT)`: Diffuse lighting (Lambert's cosine law)
+- `max(..., 0)`: Clamp negative values (back-facing surfaces get no direct light)
+- `AMBIENT +`: Add ambient light to prevent pure black
+
+**`fragColor`:** User-defined output variable (vec3) - lit color passed to fragment shader
+- Combines vertex color with lighting
+- Per-vertex lighting (Gouraud shading)
+- Interpolated across triangle faces
 
 **Clip Space Coordinates:**
 - x: -1.0 (left) to +1.0 (right)
@@ -218,12 +254,43 @@ gl_Position = push.transform * vec4(0.5, 0.5, 0.5, 1.0)
 
 ### Key Features
 
-1. **3D Transformations:** `push.transform` applies scale, rotation, and translation in one 4×4 matrix
-2. **Per-Vertex Colors:** Color attribute from vertex buffer passed to fragment shader
-3. **3D Rendering:** Full XYZ positioning with depth testing
-4. **Per-Vertex Execution:** Runs independently for each vertex
-5. **Efficient Animation:** Change transform matrix without modifying vertex buffers
-6. **Clip Space Rendering:** Without projection matrix, coordinates map directly to clip space [0, 1]
+1. **3D Transformations:** `push.transform` applies projection, view, and model transformations in one matrix
+2. **Per-Vertex Lighting:** Diffuse lighting calculated per vertex (Gouraud shading)
+3. **Normal Transformation:** Correct normal handling with inverse-transpose matrix for non-uniform scaling
+4. **Ambient + Diffuse:** Combines ambient light (2%) with directional diffuse lighting
+5. **Per-Vertex Colors:** Vertex colors modulated by lighting intensity
+6. **3D Rendering:** Full XYZ positioning with depth testing and lighting
+7. **Efficient Animation:** Change transform matrices without modifying vertex buffers
+
+### Lighting Model
+
+**Type:** Gouraud Shading (per-vertex lighting with interpolation)
+
+**Components:**
+- **Ambient:** Constant 2% brightness to prevent pure black surfaces
+- **Diffuse:** Lambertian reflectance based on surface normal and light direction
+
+**Formula:**
+```glsl
+lightIntensity = ambient + max(dot(normal, lightDir), 0)
+finalColor = lightIntensity * vertexColor
+```
+
+**Advantages:**
+- Fast: Computed once per vertex, interpolated across faces
+- Smooth shading on curved surfaces with dense vertices
+- Good for real-time rendering
+
+**Limitations:**
+- Less accurate than per-pixel (Phong) shading
+- Specular highlights not supported (no view-dependent effects)
+- Low-poly models show faceting
+
+**Future Enhancements:**
+- Per-pixel lighting (Phong shading) in fragment shader
+- Specular highlights
+- Multiple light sources
+- Shadow mapping
 
 ---
 

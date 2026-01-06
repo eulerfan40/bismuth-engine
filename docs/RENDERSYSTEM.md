@@ -205,15 +205,15 @@ void SimpleRenderSystem::createPipelineLayout() {
 **Push Constant Structure:**
 ```cpp
 struct SimplePushConstantData {
-    glm::mat4 transform{1.f};     // 4x4 transformation matrix (projection * model)
-    alignas(16) glm::vec3 color;  // RGB color
+    glm::mat4 transform{1.f};      // projection * view * model
+    glm::mat4 normalMatrix{1.f};   // Normal transformation matrix for lighting
 };
 ```
 
 **Configuration:**
 - **Stage Flags:** Both vertex and fragment shaders can access
 - **Offset:** 0 (first/only push constant range)
-- **Size:** 80 bytes (mat4 + vec3 with alignment)
+- **Size:** 128 bytes (two mat4 matrices)
 
 **No Descriptor Sets:**
 - `setLayoutCount = 0` - not using textures or uniform buffers yet
@@ -370,13 +370,14 @@ auto projectionView = camera.getProjection() * camera.getView();
 
 ```cpp
 SimplePushConstantData push{};
-push.color = obj.color;
-push.transform = projectionView * obj.transform.mat4();
+auto modelMatrix = obj.transform.mat4();
+push.transform = projectionView * modelMatrix;
+push.normalMatrix = obj.transform.normalMatrix();
 ```
 
 **Data Extraction:**
-- `color` → `push.color` (vec3 RGB, currently unused - vertex colors used instead)
-- Combined transformation matrix → `push.transform` (4×4 projection-view-model matrix)
+- Combined transformation matrix → `push.transform` (projection * view * model)
+- Normal transformation matrix → `push.normalMatrix` (for lighting calculations)
 
 **Transform Matrix Generation:**
 
@@ -434,8 +435,11 @@ vkCmdPushConstants(
 - `pipelineLayout` - Layout containing push constant ranges
 - `stageFlags` - Which shaders can access (vertex + fragment)
 - `offset` - Byte offset into push constant block (0)
-- `size` - Number of bytes to upload (40)
+- `size` - Number of bytes to upload (128)
 - `pValues` - Pointer to data
+
+**Normal Matrix:**
+The `normalMatrix` field contains the inverse-transpose of the model matrix's upper-left 3×3 portion, used for transforming surface normals correctly when objects have non-uniform scaling. See [GAMEOBJECT.md](GAMEOBJECT.md) for details on normal matrix calculation.
 
 **Efficiency:**
 - Fast GPU memory update (registers or cache)

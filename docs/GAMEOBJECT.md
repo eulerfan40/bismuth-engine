@@ -3,7 +3,7 @@
 Complete technical documentation for the GameObject component system.
 
 **Files:** `engine/src/GameObject.hpp`, `engine/src/GameObject.cpp`  
-**Purpose:** Game object representation with transform and rendering data  
+**Purpose:** Game object representation with transform, rendering data, and lighting support  
 **Pattern:** Component-based architecture with unique IDs
 
 ---
@@ -190,6 +190,7 @@ struct TransformComponent {
     glm::vec3 rotation{};               // Rotation angles in radians (x, y, z)
 
     glm::mat4 mat4();                   // Generate 4×4 transformation matrix
+    glm::mat3 normalMatrix();           // Generate 3×3 normal transformation matrix for lighting
 };
 ```
 
@@ -402,6 +403,105 @@ Final Position (clip space)
 This implementation uses Tait-Bryan angles (also called Cardan angles), which are commonly used in aerospace and robotics. The rotation order Y(1), X(2), Z(3) corresponds to yaw-pitch-roll.
 
 **See:** [Wikipedia - Euler Angles](https://en.wikipedia.org/wiki/Euler_angles#Rotation_matrix) for detailed mathematical derivation.
+
+### Normal Matrix
+
+```cpp
+glm::mat3 normalMatrix() {
+    const float c3 = glm::cos(rotation.z);
+    const float s3 = glm::sin(rotation.z);
+    const float c2 = glm::cos(rotation.x);
+    const float s2 = glm::sin(rotation.x);
+    const float c1 = glm::cos(rotation.y);
+    const float s1 = glm::sin(rotation.y);
+    const glm::vec3 invScale = 1.0f / scale;
+
+    return glm::mat3{
+        {
+            invScale.x * (c1 * c3 + s1 * s2 * s3),
+            invScale.x * (c2 * s3),
+            invScale.x * (c1 * s2 * s3 - c3 * s1)
+        },
+        {
+            invScale.y * (c3 * s1 * s2 - c1 * s3),
+            invScale.y * (c2 * c3),
+            invScale.y * (c1 * c3 * s2 + s1 * s3)
+        },
+        {
+            invScale.z * (c2 * s1),
+            invScale.z * (-s2),
+            invScale.z * (c1 * c2)
+        }
+    };
+}
+```
+
+**Purpose:** Generate a 3×3 matrix for transforming surface normals in lighting calculations.
+
+**Why Normal Matrix is Different:**
+
+Normal vectors require special treatment because they represent directions perpendicular to surfaces, not positions. When an object is scaled non-uniformly, normals need to be transformed differently to maintain perpendicularity.
+
+**Key Differences from Model Matrix:**
+1. **3×3 (not 4×4):** Normals are directions, not positions - no translation needed
+2. **Inverse scale:** Uses `1.0f / scale` instead of `scale`
+3. **No translation:** Translation doesn't affect direction vectors
+
+**Why Inverse Scale?**
+
+Consider a sphere scaled by `{2.0, 1.0, 1.0}` (stretched horizontally):
+- **Without inverse scale:** Normals would stretch with the surface, pointing in wrong directions
+- **With inverse scale:** Normals contract perpendicular to stretched axis, maintaining correct perpendicularity
+
+**Mathematical Background:**
+
+The normal matrix is the transpose of the inverse of the upper-left 3×3 portion of the model matrix:
+```
+Normal Matrix = transpose(inverse(mat3(modelMatrix)))
+```
+
+For our transform (rotation + non-uniform scale), this simplifies to applying rotation with inverse scale.
+
+**Usage in Rendering:**
+
+```cpp
+// In render system
+SimplePushConstantData push{};
+push.transform = projectionView * obj.transform.mat4();
+push.normalMatrix = obj.transform.normalMatrix();
+
+// In vertex shader
+vec3 normalWorldSpace = normalize(mat3(push.normalMatrix) * normal);
+```
+
+**Performance Note:**
+- Computed once per object per frame
+- More efficient than computing inverse-transpose on GPU
+- Pre-computes sin/cos values (shared with mat4() calculation)
+
+**When Normals Don't Need Special Treatment:**
+- **Uniform scale:** If `scale.x == scale.y == scale.z`, inverse scale equals `1/scale` uniformly
+- **Rotation only:** Pure rotation preserves perpendicularity
+- **Translation only:** Doesn't affect normals (they're directions)
+
+**Example Transformation:**
+
+```cpp
+// Object scaled wider in X direction
+transform.scale = {2.0f, 1.0f, 1.0f};
+transform.rotation = {0.0f, glm::radians(45.0f), 0.0f};
+
+// Normal pointing up (0, 1, 0)
+glm::vec3 normal = {0.0f, 1.0f, 0.0f};
+
+// After normal matrix transformation
+glm::vec3 transformedNormal = normalMatrix() * normal;
+// Result: Normal remains perpendicular to surface despite non-uniform scaling
+```
+
+**Implementation Location:**
+
+Both `mat4()` and `normalMatrix()` are now implemented in `GameObject.cpp` (extracted from the header) to reduce compilation dependencies and improve code organization.
 
 ---
 

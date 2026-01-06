@@ -421,7 +421,7 @@ void FirstApp::run() {
 struct Vertex {
     glm::vec3 position{};  // 3D position
     glm::vec3 color{};     // RGB color per vertex
-    glm::vec3 normal{};    // Surface normal (for future lighting)
+    glm::vec3 normal{};    // Surface normal for lighting calculations
     glm::vec2 uv{};        // Texture coordinates (for future texturing)
     
     bool operator==(const Vertex& other) const;
@@ -472,7 +472,7 @@ std::shared_ptr<Model> model = Model::createModelFromFile(
 - Attribute descriptions: How to interpret data (format, location, offset)
   - Location 0: `position` (vec3, R32G32B32_SFLOAT)
   - Location 1: `color` (vec3, R32G32B32_SFLOAT)
-  - Location 2: `normal` (vec3, R32G32B32_SFLOAT) - Reserved for future lighting
+  - Location 2: `normal` (vec3, R32G32B32_SFLOAT) - Used for lighting calculations
   - Location 3: `uv` (vec2, R32G32_SFLOAT) - Reserved for future texturing
 - Used by Pipeline during creation
 
@@ -929,17 +929,17 @@ namespace std {
 **Data Structure:**
 ```cpp
 struct SimplePushConstantData {
-    glm::mat4 transform{1.f};    // 4x4 transformation matrix (projection * model)
-    alignas(16) glm::vec3 color; // RGB color (16-byte aligned!)
+    glm::mat4 transform{1.f};      // projection * view * model
+    glm::mat4 normalMatrix{1.f};   // Normal transformation matrix for lighting
 };
 ```
 
 **Memory Layout:**
 ```
 Offset  Size  Field
-0x00    64    mat4 transform (projection * model matrix)
-0x40    12    vec3 color (aligned to 16)
-Total: 80 bytes
+0x00    64    mat4 transform (projection * view * model)
+0x40    64    mat4 normalMatrix (normal transformation for lighting)
+Total: 128 bytes (at minimum guaranteed limit)
 ```
 
 **Pipeline Layout Configuration:**
@@ -955,10 +955,11 @@ pushConstantRange.size = sizeof(SimplePushConstantData);
 // Optimization: Compute projection-view once per frame
 auto projectionView = camera.getProjection() * camera.getView();
 
-// Per object: Combine with model transform
+// Per object: Combine with model transform and compute normal matrix
 SimplePushConstantData push{};
-push.transform = projectionView * obj.transform.mat4();  // (Projection * View) * Model
-push.color = obj.color;  // Color (currently unused - vertex colors used instead)
+auto modelMatrix = obj.transform.mat4();
+push.transform = projectionView * modelMatrix;  // (Projection * View) * Model
+push.normalMatrix = obj.transform.normalMatrix();  // For lighting calculations
 
 vkCmdPushConstants(commandBuffer, pipelineLayout, 
                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -969,16 +970,30 @@ vkCmdPushConstants(commandBuffer, pipelineLayout,
 ```glsl
 // Vertex shader
 layout(push_constant) uniform Push {
-  mat4 transform;
-  vec3 color;
+  mat4 transform;      // projection * view * model
+  mat4 normalMatrix;   // normal transformation
 } push;
 
-gl_Position = push.transform * vec4(position, 1.0);
-                   ^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^
-                   Combined matrix  Vertex promoted to vec4
+void main() {
+    gl_Position = push.transform * vec4(position, 1.0);
+    
+    // Transform normal to world space for lighting
+    vec3 normalWorldSpace = normalize(mat3(push.normalMatrix) * normal);
+    
+    // Calculate lighting intensity (ambient + diffuse)
+    float lightIntensity = AMBIENT + max(dot(normalWorldSpace, DIRECTION_TO_LIGHT), 0);
+    
+    // Apply lighting to vertex color
+    fragColor = lightIntensity * color;
+}
 
-// Fragment shader
-outColor = vec4(push.color, 1.0);
+// Fragment shader - receives interpolated lit color
+layout(location = 0) in vec3 fragColor;
+layout(location = 0) out vec4 outColor;
+
+void main() {
+    outColor = vec4(fragColor, 1.0);
+}
 ```
 
 **Transformation Order:**
@@ -989,10 +1004,18 @@ outColor = vec4(push.color, 1.0);
 5. Result in clip space coordinates (homogeneous coords with w component)
 6. GPU automatically performs perspective division (x/w, y/w, z/w)
 
-**Why `alignas(16)` for vec3?**
-- GLSL std140 layout requires vec3 to be 16-byte aligned
-- Without alignment, GPU reads wrong memory offsets
-- Results in incorrect colors or validation errors
+**Normal Matrix for Lighting:**
+- Stored as `mat4` in push constants (128 bytes total)
+- Only upper-left 3×3 is used in shader: `mat3(push.normalMatrix)`
+- Required for correct normal transformation with non-uniform scaling
+- Computed as inverse-transpose of model matrix's rotation/scale portion
+- See [GAMEOBJECT.md](GAMEOBJECT.md) for normal matrix calculation details
+
+**Lighting System:**
+- **Type:** Gouraud shading (per-vertex lighting)
+- **Model:** Ambient (2%) + Diffuse (Lambert)
+- **Light:** Single directional light
+- **Calculation:** Done in vertex shader, interpolated across faces
 
 **See:** [SHADER.md](SHADER.md) for complete shader implementation details
 

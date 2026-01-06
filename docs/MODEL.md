@@ -93,14 +93,14 @@ struct Vertex {
 **Vertex attributes:**
 - `position` (vec3): 3D coordinates in model space
 - `color` (vec3): RGB color values (0.0 to 1.0 per channel)
-- `normal` (vec3): Surface normal vector for lighting (currently unused in shaders)
-- `uv` (vec2): Texture coordinates for UV mapping (currently unused in shaders)
+- `normal` (vec3): Surface normal vector for lighting calculations
+- `uv` (vec2): Texture coordinates for UV mapping (reserved for future texturing)
 
 **Equality operator:** Required for using `Vertex` as a key in `std::unordered_map` for vertex deduplication during model loading.
 
 **Default initialization:** All fields are value-initialized to zero using `{}` syntax.
 
-**Future usage:** Normal and UV attributes are loaded from OBJ files but not yet consumed by shaders. They're prepared for future lighting and texturing systems.
+**Lighting support:** Normal attributes are now actively used in the vertex shader for Gouraud shading (per-vertex lighting). UV attributes are loaded but reserved for future texturing systems.
 
 ### Data Structure
 
@@ -341,63 +341,33 @@ std::vector<VkVertexInputBindingDescription> Model::Vertex::getBindingDescriptio
 
 ```cpp
 std::vector<VkVertexInputAttributeDescription> Model::Vertex::getAttributeDescriptions() {
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions(4);
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
     
-    // Position attribute (location 0)
-    attributeDescriptions[0].binding = 0;
-    attributeDescriptions[0].location = 0;
-    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[0].offset = offsetof(Vertex, position);
-    
-    // Color attribute (location 1)
-    attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[1].offset = offsetof(Vertex, color);
-    
-    // Normal attribute (location 2)
-    attributeDescriptions[2].binding = 0;
-    attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[2].offset = offsetof(Vertex, normal);
-    
-    // UV attribute (location 3)
-    attributeDescriptions[3].binding = 0;
-    attributeDescriptions[3].location = 3;
-    attributeDescriptions[3].format = VK_FORMAT_R32G32_SFLOAT;
-    attributeDescriptions[3].offset = offsetof(Vertex, uv);
+    attributeDescriptions.push_back({0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)});
+    attributeDescriptions.push_back({1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)});
+    attributeDescriptions.push_back({2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)});
+    attributeDescriptions.push_back({3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)});
     
     return attributeDescriptions;
 }
 ```
 
-**Attribute 0 (Position):**
-- `binding = 0`: References binding description [0]
-- `location = 0`: Corresponds to `layout(location = 0)` in vertex shader
-- `format = VK_FORMAT_R32G32B32_SFLOAT`: Three 32-bit floats (vec3)
-- `offset = offsetof(Vertex, position)`: Byte offset of position field
+**Aggregate Initialization:** Uses C++ aggregate initialization with designated initializers for concise attribute setup.
 
-**Attribute 1 (Color):**
-- `binding = 0`: References binding description [0]
-- `location = 1`: Corresponds to `layout(location = 1)` in vertex shader
-- `format = VK_FORMAT_R32G32B32_SFLOAT`: Three 32-bit floats (vec3)
-- `offset = offsetof(Vertex, color)`: Byte offset of color field
+**Structure:** `{location, binding, format, offset}`
 
-**Attribute 2 (Normal):**
-- `binding = 0`: References binding description [0]
-- `location = 2`: Corresponds to `layout(location = 2)` in vertex shader
-- `format = VK_FORMAT_R32G32B32_SFLOAT`: Three 32-bit floats (vec3)
-- `offset = offsetof(Vertex, normal)`: Byte offset of normal field
-- **Note:** Currently unused in shaders, reserved for future lighting
+**Attribute Breakdown:**
 
-**Attribute 3 (UV):**
-- `binding = 0`: References binding description [0]
-- `location = 3`: Corresponds to `layout(location = 3)` in vertex shader
-- `format = VK_FORMAT_R32G32_SFLOAT`: Two 32-bit floats (vec2)
-- `offset = offsetof(Vertex, uv)`: Byte offset of uv field
-- **Note:** Currently unused in shaders, reserved for future texturing
+| Location | Binding | Format | Offset | Purpose |
+|----------|---------|--------|--------|---------|
+| 0 | 0 | `VK_FORMAT_R32G32B32_SFLOAT` | `offsetof(Vertex, position)` | Position (vec3) |
+| 1 | 0 | `VK_FORMAT_R32G32B32_SFLOAT` | `offsetof(Vertex, color)` | Color (vec3) |
+| 2 | 0 | `VK_FORMAT_R32G32B32_SFLOAT` | `offsetof(Vertex, normal)` | Normal (vec3) for lighting |
+| 3 | 0 | `VK_FORMAT_R32G32_SFLOAT` | `offsetof(Vertex, uv)` | UV (vec2) - reserved for texturing |
 
-**Purpose:** Maps struct fields to vertex shader inputs.
+**Purpose:** Maps struct fields to vertex shader inputs with matching location indices.
+
+**Note:** The normal attribute is now actively used in the vertex shader for Gouraud shading (per-vertex lighting). UV coordinates remain reserved for future texturing.
 
 **Why `offsetof()`?**
 Using `offsetof()` instead of hardcoded byte offsets ensures correctness even if:

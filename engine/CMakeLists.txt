@@ -89,6 +89,7 @@ add_executable(bismuth_engine
         src/KeyboardMovementController.cpp
         src/KeyboardMovementController.hpp
         src/Utils.hpp
+        src/GameObject.cpp
 )
 
 # Set compiler-specific warning flags
